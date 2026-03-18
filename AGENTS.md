@@ -18,8 +18,12 @@ agent-human-log/
 │   ├── mcp-server/       # MCP server — tools Claude/OpenCode can call
 │   │   └── index.ts      # Entry point, tool registration
 │   ├── analyzers/         # Data source parsers
-│   │   ├── session.ts     # OpenCode/Claude Code session log parser
+│   │   ├── session.ts     # Claude Code JSONL session log parser
 │   │   └── git.ts         # Multi-repo git log parser
+│   ├── config/            # Configuration loading
+│   │   └── index.ts       # Zod-validated config loader with ~ expansion
+│   ├── obsidian/          # Obsidian vault writer
+│   │   └── writer.ts      # Daily note create/append/section replacement
 │   ├── summarizer/        # LLM-based compression
 │   │   └── index.ts       # Session + git → few lines
 │   ├── cli/               # Standalone CLI commands
@@ -66,7 +70,7 @@ Data Sources              Analyzers              Summarizer           Output
 ### Session Data Sources
 
 **Claude Code**: `~/.claude/projects/**/*.jsonl` — one JSONL file per project session
-**OpenCode**: `~/.local/share/opencode/opencode.db` — SQLite database
+**Claude Code**: `~/.local/share/Claude/Claude.db` — SQLite database
 **Git**: `git log --since="6am" --stat --format=...` across configured repo paths
 
 ### Obsidian Daily Note Format
