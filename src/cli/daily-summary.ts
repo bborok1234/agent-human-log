@@ -12,7 +12,7 @@ export default async function dailySummary() {
 
   const sessions = await getAllSessionsForDate(config.session, date);
   const git = await getGitSummaryForDate(config.git.repos, date, config.git.authorEmail);
-  const summary = await summarizeDay({ date, sessions, git });
+  const summary = await summarizeDay({ date, sessions, git }, config.summarizer);
 
   console.log(`# ${summary.date}\n`);
   console.log(`## Summary`);
