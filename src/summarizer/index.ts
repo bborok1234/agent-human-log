@@ -1,0 +1,71 @@
+import type { DayData, DailySummary } from '../types/index.js';
+
+export async function summarizeDay(data: DayData): Promise<DailySummary> {
+  const { date, sessions, git } = data;
+
+  const totalCommits = git.reduce((sum, g) => sum + g.commits.length, 0);
+  const totalFiles = git.reduce((sum, g) => sum + g.totalFilesChanged, 0);
+  const totalInsertions = git.reduce((sum, g) => sum + g.totalInsertions, 0);
+  const totalDeletions = git.reduce((sum, g) => sum + g.totalDeletions, 0);
+  const totalSessions = sessions.length;
+  const totalMinutes = sessions.reduce((sum, s) => sum + s.durationMinutes, 0);
+  const hours = Math.round(totalMinutes / 60);
+
+  const stats = `${totalCommits} commits · ${totalFiles} files · +${totalInsertions}/-${totalDeletions} · ${totalSessions} sessions · ~${hours}h`;
+
+  // Phase 1 MVP: extract user messages as-is (human's own words)
+  // Phase 1.5: LLM compression of user messages into 3-5 lines
+  const summary = extractKeyMessages(sessions);
+
+  const carryForward = extractCarryForward(sessions, git);
+
+  return { date, summary, carryForward, stats };
+}
+
+function extractKeyMessages(
+  sessions: DayData['sessions'],
+): string[] {
+  const allUserMessages = sessions.flatMap((s) =>
+    s.userMessages.map((msg) => ({
+      project: s.project,
+      message: msg,
+      timestamp: s.timestamp,
+    })),
+  );
+
+  const condensed = allUserMessages
+    .map((m) => {
+      const firstLine = m.message.split('\n')[0].trim();
+      const truncated =
+        firstLine.length > 120 ? firstLine.slice(0, 120) + '...' : firstLine;
+      return `[${m.project}] ${truncated}`;
+    })
+    .slice(0, 10);
+
+  return condensed;
+}
+
+function extractCarryForward(
+  sessions: DayData['sessions'],
+  git: DayData['git'],
+): string[] {
+  const items: string[] = [];
+
+  for (const g of git) {
+    for (const branch of g.activeBranches) {
+      if (branch !== 'main' && branch !== 'master') {
+        items.push(`Open branch: ${g.repo}/${branch}`);
+      }
+    }
+  }
+
+  for (const session of sessions) {
+    for (const todo of session.completedTodos) {
+      if (todo.toLowerCase().includes('todo') || todo.toLowerCase().includes('pending')) {
+        items.push(todo);
+      }
+    }
+  }
+
+  return items.slice(0, 5);
+}

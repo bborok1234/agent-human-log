@@ -1,0 +1,22 @@
+{
+  "obsidian": {
+    "vaultPath": "~/Documents/MyVault",
+    "dailyNotesDir": "Daily Notes",
+    "dateFormat": "YYYY-MM-DD"
+  },
+  "git": {
+    "repos": [
+      "~/projects/my-app"
+    ],
+    "authorEmail": "me@example.com"
+  },
+  "session": {
+    "claudeCodeDir": "~/.claude/projects",
+    "openCodeDb": "~/.local/share/opencode/opencode.db"
+  },
+  "summarizer": {
+    "provider": "anthropic",
+    "model": "claude-sonnet-4-20250514",
+    "maxTokens": 500
+  }
+}

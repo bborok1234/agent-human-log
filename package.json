@@ -1,0 +1,33 @@
+{
+  "name": "agent-human-log",
+  "version": "0.1.0",
+  "description": "Personal AI work companion — auto-captures, summarizes, and presents daily work for people who hate logging",
+  "type": "module",
+  "main": "dist/mcp-server/index.js",
+  "bin": {
+    "ahl": "dist/cli/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node dist/mcp-server/index.js",
+    "daily": "node dist/cli/daily-summary.js",
+    "lint": "eslint src/",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.0",
+    "zod": "^3.24.0",
+    "better-sqlite3": "^11.0.0",
+    "date-fns": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/better-sqlite3": "^7.6.0",
+    "typescript": "^5.7.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "license": "MIT"
+}
