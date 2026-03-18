@@ -11,7 +11,7 @@
     "build": "tsc",
     "dev": "tsc --watch",
     "start": "node dist/mcp-server/index.js",
-    "daily": "node dist/cli/daily-summary.js",
+    "daily": "tsc && node --env-file=.env dist/cli/index.js daily",
     "lint": "eslint src/",
     "typecheck": "tsc --noEmit"
   },

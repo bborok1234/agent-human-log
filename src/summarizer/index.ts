@@ -145,17 +145,9 @@ function extractCleanMessages(sessions: DayData['sessions']): string[] {
 
 function extractCarryForward(
   sessions: DayData['sessions'],
-  git: DayData['git'],
+  _git: DayData['git'],
 ): string[] {
   const items: string[] = [];
-
-  for (const g of git) {
-    for (const branch of g.activeBranches) {
-      if (branch !== 'main' && branch !== 'master') {
-        items.push(`Open branch: ${g.repo}/${branch}`);
-      }
-    }
-  }
 
   for (const session of sessions) {
     for (const todo of session.completedTodos) {
@@ -173,19 +165,20 @@ const SUMMARIZER_PROMPT = `You are a work journal assistant. Given a developer's
 Rules:
 - Output 3-5 bullet points maximum, no matter how much input
 - Each bullet should describe an OUTCOME or DECISION, not a process
-- Use the developer's own language/terms where possible
-- Group related activities into single bullets
+- Git commits are the strongest signal of what was actually shipped — prioritize them
+- User messages show intent and context — use them to add "why" to the commits
+- Group related commits + messages into single bullets
 - Include project names in brackets like [project-name]
 - Write in the same language the developer used (Korean if input is Korean)
 - No preamble, no headers — just the bullet points
 - Each line starts with "- "
 
-Good example:
+Good:
 - [luffy] 에이전트 라우터를 5개 도메인 모듈로 분리 리팩토링, PR 생성
-- [luffy] 로드맵 V2 구조 개편 — 너무 커져서 3개 파일로 분할
-- [agent-human-log] 프로젝트 부트스트랩 + Phase 1 MVP 완성 (세션 분석, Obsidian 연동)
+- [luffy] 로드맵 V2가 너무 커져서 3개 파일로 분할 (로드맵/완료PR/결정사항)
+- [agent-human-log] Phase 1 MVP 완성 — 세션 분석 + Obsidian daily note 연동 + LLM 요약
 
-Bad example:
-- 라우터를 분리해야 하는지 논의함
-- 머지 완료 다음작업 진행
-- 커밋하고 push함`;
+Bad:
+- 라우터를 분리해야 하는지 논의함 (process, not outcome)
+- 머지 완료 다음작업 진행 (noise)
+- 커밋하고 push함 (mechanical action)`;

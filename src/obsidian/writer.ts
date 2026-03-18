@@ -4,7 +4,7 @@ import type { ObsidianConfig, DailySummary } from '../types/index.js';
 
 const SECTION_MARKERS = {
   focus: '## Focus',
-  yesterday: '## Yesterday',
+  summary: '## Summary',
   workLog: '## Work Log',
   carryForward: '## Carry Forward',
   stats: '## Stats',
@@ -15,7 +15,7 @@ const TEMPLATE = `# {{date}}
 ## Focus
 
 
-## Yesterday
+## Summary
 
 
 ## Work Log
@@ -76,7 +76,7 @@ export async function writeDailySummary(
 
   if (summary.summary.length > 0) {
     const summaryText = summary.summary.map((s) => `- ${s}`).join('\n');
-    note = replaceSectionContent(note, SECTION_MARKERS.yesterday, summaryText);
+    note = replaceSectionContent(note, SECTION_MARKERS.summary, summaryText);
   }
 
   if (summary.carryForward.length > 0) {
