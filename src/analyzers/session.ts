@@ -112,7 +112,7 @@ async function parseJsonlSession(
       if (!msg.timestamp) continue;
 
       const msgDate = new Date(msg.timestamp);
-      const msgDateStr = msgDate.toISOString().split('T')[0];
+      const msgDateStr = msgDate.toLocaleDateString('en-CA');
       if (msgDateStr !== date) continue;
 
       hasMatchingDate = true;

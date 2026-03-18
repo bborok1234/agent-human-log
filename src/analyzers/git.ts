@@ -3,9 +3,10 @@ import { promisify } from 'node:util';
 import type { GitCommit, GitDaySummary } from '../types/index.js';
 
 const execFileAsync = promisify(execFile);
+const GIT_BINARY = process.env['GIT_PATH'] ?? '/usr/bin/git';
 
-const GIT_LOG_FORMAT = '%H%n%s%n%aI';
-const GIT_LOG_SEPARATOR = '---COMMIT_END---';
+const COMMIT_START = '---AHL_COMMIT_START---';
+const GIT_LOG_FORMAT = `${COMMIT_START}%n%H%n%s%n%aI`;
 
 export async function getGitSummaryForDate(
   repos: string[],
@@ -69,12 +70,12 @@ async function getCommitsForDate(
 ): Promise<GitCommit[]> {
   const repoName = repoPath.split('/').pop() ?? 'unknown';
 
-  const { stdout } = await execFileAsync('git', [
+  const { stdout } = await execFileAsync(GIT_BINARY, [
     'log',
     `--since=${date}T00:00:00`,
     `--until=${date}T23:59:59`,
     `--author=${authorEmail}`,
-    `--format=${GIT_LOG_FORMAT}${GIT_LOG_SEPARATOR}`,
+    `--format=${GIT_LOG_FORMAT}`,
     '--stat',
     '--all',
   ], { cwd: repoPath });
@@ -86,7 +87,7 @@ async function getCommitsForDate(
 
 function parseGitLogOutput(output: string, repoName: string): GitCommit[] {
   const commits: GitCommit[] = [];
-  const blocks = output.split(GIT_LOG_SEPARATOR).filter(Boolean);
+  const blocks = output.split(COMMIT_START).filter((b) => b.trim());
 
   for (const block of blocks) {
     const lines = block.trim().split('\n');
@@ -94,11 +95,12 @@ function parseGitLogOutput(output: string, repoName: string): GitCommit[] {
 
     const hash = lines[0];
     const message = lines[1];
-    const timestamp = new Date(lines[2]);
+    const dateStr = lines[2];
+    const timestamp = new Date(dateStr);
 
-    const statLine = lines.find((l) =>
-      l.match(/\d+ files? changed/),
-    );
+    if (!hash || hash.length !== 40) continue;
+
+    const statLine = lines.find((l) => /\d+ files? changed/.test(l));
 
     let filesChanged = 0;
     let insertions = 0;
@@ -130,7 +132,7 @@ function parseGitLogOutput(output: string, repoName: string): GitCommit[] {
 
 async function getActiveBranches(repoPath: string): Promise<string[]> {
   try {
-    const { stdout } = await execFileAsync('git', [
+    const { stdout } = await execFileAsync(GIT_BINARY, [
       'branch',
       '--sort=-committerdate',
       '--format=%(refname:short)',

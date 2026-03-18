@@ -23,14 +23,18 @@ async function getConfig(): Promise<Config> {
   return configCache;
 }
 
+function localDateStr(date: Date = new Date()): string {
+  return date.toLocaleDateString('en-CA');
+}
+
 function todayStr(): string {
-  return new Date().toISOString().split('T')[0];
+  return localDateStr();
 }
 
 function yesterdayStr(): string {
   const d = new Date();
   d.setDate(d.getDate() - 1);
-  return d.toISOString().split('T')[0];
+  return localDateStr(d);
 }
 
 const server = new McpServer({

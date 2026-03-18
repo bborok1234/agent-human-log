@@ -5,7 +5,7 @@ import { summarizeDay } from '../summarizer/index.js';
 import { writeDailySummary } from '../obsidian/writer.js';
 
 export default async function dailySummary() {
-  const date = process.argv[3] ?? new Date().toISOString().split('T')[0];
+  const date = process.argv[3] ?? new Date().toLocaleDateString('en-CA');
   console.error(`Generating daily summary for ${date}...`);
 
   const config = await loadConfig();

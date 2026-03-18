@@ -53,6 +53,7 @@ function resolveAllPaths(config: Config): Config {
 }
 
 const CONFIG_SEARCH_PATHS = [
+  'config/config.json',
   'config.json',
   join(homedir(), '.config', 'agent-human-log', 'config.json'),
 ];
