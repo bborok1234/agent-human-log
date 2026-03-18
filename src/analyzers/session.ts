@@ -1,6 +1,7 @@
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { SessionEntry } from '../types/index.js';
+import type { SessionEntry, SessionConfig } from '../types/index.js';
+import { getOpenCodeSessionsForDate } from './opencode.js';
 
 interface ContentBlock {
   type: 'text' | 'tool_result' | 'tool_reference' | 'thinking' | 'tool_use';
@@ -23,7 +24,24 @@ interface RawSessionLine {
   };
 }
 
-export async function getSessionsForDate(
+export async function getAllSessionsForDate(
+  sessionConfig: SessionConfig,
+  date: string,
+): Promise<SessionEntry[]> {
+  const claudeSessions = await getClaudeCodeSessionsForDate(
+    sessionConfig.claudeCodeDir,
+    date,
+  );
+  const opencodeSessions = getOpenCodeSessionsForDate(
+    sessionConfig.openCodeDb,
+    date,
+  );
+
+  return [...claudeSessions, ...opencodeSessions]
+    .sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+}
+
+export async function getClaudeCodeSessionsForDate(
   claudeCodeDir: string,
   date: string,
 ): Promise<SessionEntry[]> {

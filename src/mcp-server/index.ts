@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { loadConfig } from '../config/index.js';
-import { getSessionsForDate } from '../analyzers/session.js';
+import { getAllSessionsForDate } from '../analyzers/session.js';
 import { getGitSummaryForDate } from '../analyzers/git.js';
 import { summarizeDay } from '../summarizer/index.js';
 import {
@@ -58,8 +58,8 @@ server.registerTool(
     const targetDate = date ?? todayStr();
     const config = await getConfig();
 
-    const sessions = await getSessionsForDate(
-      config.session.claudeCodeDir,
+    const sessions = await getAllSessionsForDate(
+      config.session,
       targetDate,
     );
     const git = await getGitSummaryForDate(
