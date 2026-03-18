@@ -1,5 +1,5 @@
 import { loadConfig } from '../config/index.js';
-import { getSessionsForDate } from '../analyzers/session.js';
+import { getAllSessionsForDate } from '../analyzers/session.js';
 import { getGitSummaryForDate } from '../analyzers/git.js';
 import { summarizeDay } from '../summarizer/index.js';
 import { writeDailySummary } from '../obsidian/writer.js';
@@ -10,7 +10,7 @@ export default async function dailySummary() {
 
   const config = await loadConfig();
 
-  const sessions = await getSessionsForDate(config.session.claudeCodeDir, date);
+  const sessions = await getAllSessionsForDate(config.session, date);
   const git = await getGitSummaryForDate(config.git.repos, date, config.git.authorEmail);
   const summary = await summarizeDay({ date, sessions, git });
 

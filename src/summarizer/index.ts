@@ -8,7 +8,11 @@ const SYSTEM_MESSAGE_PATTERNS = [
   /^<system/,
   /^<context/,
   /^<\/?(local-command|command-name|local-research|system|context)/,
+  /^<!-- OMO_INTERNAL/,
+  /^\[SYSTEM DIRECTIVE/,
 ];
+
+const MODE_PREFIX_PATTERN = /^\[(analyze-mode|search-mode|implement-mode|review-mode)\]\s*/i;
 
 const MIN_MESSAGE_LENGTH = 5;
 
@@ -16,6 +20,20 @@ function isSystemMessage(msg: string): boolean {
   const firstLine = msg.split('\n')[0].trim();
   if (firstLine.length < MIN_MESSAGE_LENGTH) return true;
   return SYSTEM_MESSAGE_PATTERNS.some((p) => p.test(firstLine));
+}
+
+function cleanUserMessage(msg: string): string {
+  const firstLine = msg.split('\n')[0].trim();
+
+  if (MODE_PREFIX_PATTERN.test(firstLine)) {
+    const separatorIdx = msg.indexOf('\n---\n');
+    if (separatorIdx !== -1) {
+      return msg.slice(separatorIdx + 5).trim();
+    }
+    return '';
+  }
+
+  return msg.trim();
 }
 
 export async function summarizeDay(data: DayData): Promise<DailySummary> {
@@ -45,7 +63,8 @@ function extractKeyMessages(
 ): string[] {
   const allUserMessages = sessions.flatMap((s) =>
     s.userMessages
-      .filter((msg) => !isSystemMessage(msg))
+      .map(cleanUserMessage)
+      .filter((msg) => msg.length >= MIN_MESSAGE_LENGTH && !isSystemMessage(msg))
       .map((msg) => ({
         project: s.project,
         message: msg,
