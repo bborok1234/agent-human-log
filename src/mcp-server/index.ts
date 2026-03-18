@@ -68,7 +68,7 @@ server.registerTool(
       config.git.authorEmail,
     );
 
-    const summary = await summarizeDay({ date: targetDate, sessions, git });
+    const summary = await summarizeDay({ date: targetDate, sessions, git }, config.summarizer);
     const filePath = await writeDailySummary(config.obsidian, summary);
 
     const lines = [

@@ -1,4 +1,5 @@
-import type { DayData, DailySummary } from '../types/index.js';
+import Anthropic from '@anthropic-ai/sdk';
+import type { DayData, DailySummary, SummarizerConfig } from '../types/index.js';
 
 const SYSTEM_MESSAGE_PATTERNS = [
   /^<local-command/,
@@ -36,7 +37,10 @@ function cleanUserMessage(msg: string): string {
   return msg.trim();
 }
 
-export async function summarizeDay(data: DayData): Promise<DailySummary> {
+export async function summarizeDay(
+  data: DayData,
+  config?: SummarizerConfig,
+): Promise<DailySummary> {
   const { date, sessions, git } = data;
 
   const totalCommits = git.reduce((sum, g) => sum + g.commits.length, 0);
@@ -49,38 +53,94 @@ export async function summarizeDay(data: DayData): Promise<DailySummary> {
 
   const stats = `${totalCommits} commits · ${totalFiles} files · +${totalInsertions}/-${totalDeletions} · ${totalSessions} sessions · ~${hours}h`;
 
-  // Phase 1 MVP: extract user messages as-is (human's own words)
-  // Phase 1.5: LLM compression of user messages into 3-5 lines
-  const summary = extractKeyMessages(sessions);
+  const cleanedMessages = extractCleanMessages(sessions);
+  const commitMessages = git.flatMap((g) =>
+    g.commits.map((c) => `[${g.repo}] ${c.message}`),
+  );
+
+  let summary: string[];
+  if (config && cleanedMessages.length > 0) {
+    summary = await llmSummarize(cleanedMessages, commitMessages, date, config);
+  } else {
+    summary = fallbackSummarize(cleanedMessages);
+  }
 
   const carryForward = extractCarryForward(sessions, git);
 
   return { date, summary, carryForward, stats };
 }
 
-function extractKeyMessages(
-  sessions: DayData['sessions'],
-): string[] {
-  const allUserMessages = sessions.flatMap((s) =>
+async function llmSummarize(
+  userMessages: string[],
+  commitMessages: string[],
+  date: string,
+  config: SummarizerConfig,
+): Promise<string[]> {
+  try {
+    const client = new Anthropic();
+
+    const inputBlock = [
+      `Date: ${date}`,
+      '',
+      'User messages (developer intent):',
+      ...userMessages.map((m, i) => `${i + 1}. ${m}`),
+    ];
+
+    if (commitMessages.length > 0) {
+      inputBlock.push(
+        '',
+        'Git commits:',
+        ...commitMessages.map((m) => `- ${m}`),
+      );
+    }
+
+    const response = await client.messages.create({
+      model: config.model,
+      max_tokens: config.maxTokens,
+      messages: [
+        {
+          role: 'user',
+          content: inputBlock.join('\n'),
+        },
+      ],
+      system: SUMMARIZER_PROMPT,
+    });
+
+    const text = response.content
+      .filter((block): block is Anthropic.TextBlock => block.type === 'text')
+      .map((block) => block.text)
+      .join('\n');
+
+    return text
+      .split('\n')
+      .map((line) => line.replace(/^[-•]\s*/, '').trim())
+      .filter((line) => line.length > 0);
+  } catch (error) {
+    console.error('LLM summarization failed, falling back to extraction:', error);
+    return fallbackSummarize(userMessages);
+  }
+}
+
+function fallbackSummarize(messages: string[]): string[] {
+  return messages
+    .map((m) => {
+      const firstLine = m.split('\n')[0].trim();
+      return firstLine.length > 120 ? firstLine.slice(0, 120) + '...' : firstLine;
+    })
+    .slice(0, 10);
+}
+
+function extractCleanMessages(sessions: DayData['sessions']): string[] {
+  return sessions.flatMap((s) =>
     s.userMessages
       .map(cleanUserMessage)
       .filter((msg) => msg.length >= MIN_MESSAGE_LENGTH && !isSystemMessage(msg))
-      .map((msg) => ({
-        project: s.project,
-        message: msg,
-      })),
+      .map((msg) => {
+        const firstLine = msg.split('\n')[0].trim();
+        const truncated = firstLine.length > 200 ? firstLine.slice(0, 200) + '...' : firstLine;
+        return `[${s.project}] ${truncated}`;
+      }),
   );
-
-  const condensed = allUserMessages
-    .map((m) => {
-      const firstLine = m.message.split('\n')[0].trim();
-      const truncated =
-        firstLine.length > 120 ? firstLine.slice(0, 120) + '...' : firstLine;
-      return `[${m.project}] ${truncated}`;
-    })
-    .slice(0, 10);
-
-  return condensed;
 }
 
 function extractCarryForward(
@@ -107,3 +167,25 @@ function extractCarryForward(
 
   return items.slice(0, 5);
 }
+
+const SUMMARIZER_PROMPT = `You are a work journal assistant. Given a developer's AI session messages and git commits from one day, produce a compressed daily summary.
+
+Rules:
+- Output 3-5 bullet points maximum, no matter how much input
+- Each bullet should describe an OUTCOME or DECISION, not a process
+- Use the developer's own language/terms where possible
+- Group related activities into single bullets
+- Include project names in brackets like [project-name]
+- Write in the same language the developer used (Korean if input is Korean)
+- No preamble, no headers — just the bullet points
+- Each line starts with "- "
+
+Good example:
+- [luffy] 에이전트 라우터를 5개 도메인 모듈로 분리 리팩토링, PR 생성
+- [luffy] 로드맵 V2 구조 개편 — 너무 커져서 3개 파일로 분할
+- [agent-human-log] 프로젝트 부트스트랩 + Phase 1 MVP 완성 (세션 분석, Obsidian 연동)
+
+Bad example:
+- 라우터를 분리해야 하는지 논의함
+- 머지 완료 다음작업 진행
+- 커밋하고 push함`;
