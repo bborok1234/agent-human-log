@@ -2,13 +2,25 @@ import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { SessionEntry } from '../types/index.js';
 
-interface RawSessionMessage {
-  type: string;
-  message?: {
-    role: string;
-    content: string;
-  };
+interface ContentBlock {
+  type: 'text' | 'tool_result' | 'tool_reference' | 'thinking' | 'tool_use';
+  text?: string;
+  content?: string | ContentBlock[];
+  thinking?: string;
+  name?: string;
+}
+
+interface RawSessionLine {
+  type: 'user' | 'assistant' | 'progress' | 'file-history-snapshot';
+  sessionId?: string;
   timestamp?: string;
+  cwd?: string;
+  isSidechain?: boolean;
+  message?: {
+    role: 'user' | 'assistant';
+    model?: string;
+    content: string | ContentBlock[];
+  };
 }
 
 export async function getSessionsForDate(
@@ -65,6 +77,15 @@ async function parseProjectSessions(
   return sessions;
 }
 
+function extractTextFromContent(content: string | ContentBlock[]): string {
+  if (typeof content === 'string') return content;
+
+  return content
+    .filter((block) => block.type === 'text' && block.text)
+    .map((block) => block.text!)
+    .join('\n');
+}
+
 async function parseJsonlSession(
   filePath: string,
   date: string,
@@ -75,37 +96,46 @@ async function parseJsonlSession(
 
   const userMessages: string[] = [];
   const timestamps: Date[] = [];
-  const agentsUsed = new Set<string>();
   let sessionId = '';
+  let hasMatchingDate = false;
 
   for (const line of lines) {
     try {
-      const msg: RawSessionMessage = JSON.parse(line);
+      const msg: RawSessionLine = JSON.parse(line);
 
-      if (msg.timestamp) {
-        const msgDate = new Date(msg.timestamp);
-        const msgDateStr = msgDate.toISOString().split('T')[0];
-        if (msgDateStr !== date) continue;
-        timestamps.push(msgDate);
+      if (msg.isSidechain) continue;
+
+      if (msg.sessionId && !sessionId) {
+        sessionId = msg.sessionId;
       }
 
-      if (msg.message?.role === 'user' && msg.message.content) {
-        userMessages.push(msg.message.content);
-      }
+      if (!msg.timestamp) continue;
 
-      if (msg.type === 'session') {
-        sessionId = filePath;
+      const msgDate = new Date(msg.timestamp);
+      const msgDateStr = msgDate.toISOString().split('T')[0];
+      if (msgDateStr !== date) continue;
+
+      hasMatchingDate = true;
+      timestamps.push(msgDate);
+
+      if (msg.type === 'user' && msg.message?.role === 'user' && msg.message.content) {
+        const text = extractTextFromContent(msg.message.content);
+        if (text.trim()) {
+          userMessages.push(text.trim());
+        }
       }
     } catch {
       // intentionally ignored — malformed JSONL line
     }
   }
 
-  if (userMessages.length === 0) return null;
+  if (!hasMatchingDate || userMessages.length === 0) return null;
 
-  const projectName = projectDir.split('/').pop() ?? 'unknown';
-  const firstTs = timestamps[0] ?? new Date();
-  const lastTs = timestamps[timestamps.length - 1] ?? firstTs;
+  const dirName = projectDir.split('/').pop() ?? 'unknown';
+  const projectName = dirName.replace(/^-Users-[^-]+-/, '').replace(/-/g, '/');
+
+  const firstTs = timestamps[0]!;
+  const lastTs = timestamps[timestamps.length - 1]!;
   const durationMinutes = Math.round(
     (lastTs.getTime() - firstTs.getTime()) / 60_000,
   );
@@ -115,7 +145,7 @@ async function parseJsonlSession(
     timestamp: firstTs,
     project: projectName,
     userMessages,
-    agentsUsed: Array.from(agentsUsed),
+    agentsUsed: [],
     messageCount: userMessages.length,
     completedTodos: [],
     durationMinutes,

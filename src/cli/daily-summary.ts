@@ -1,22 +1,18 @@
+import { loadConfig } from '../config/index.js';
 import { getSessionsForDate } from '../analyzers/session.js';
 import { getGitSummaryForDate } from '../analyzers/git.js';
 import { summarizeDay } from '../summarizer/index.js';
+import { writeDailySummary } from '../obsidian/writer.js';
 
 export default async function dailySummary() {
-  const today = new Date().toISOString().split('T')[0];
-  console.error(`Generating daily summary for ${today}...`);
+  const date = process.argv[3] ?? new Date().toISOString().split('T')[0];
+  console.error(`Generating daily summary for ${date}...`);
 
-  // TODO: load config from file
-  const config = {
-    claudeCodeDir: `${process.env['HOME']}/.claude/projects`,
-    repos: [] as string[],
-    authorEmail: '',
-  };
+  const config = await loadConfig();
 
-  const sessions = await getSessionsForDate(config.claudeCodeDir, today);
-  const git = await getGitSummaryForDate(config.repos, today, config.authorEmail);
-
-  const summary = await summarizeDay({ date: today, sessions, git });
+  const sessions = await getSessionsForDate(config.session.claudeCodeDir, date);
+  const git = await getGitSummaryForDate(config.git.repos, date, config.git.authorEmail);
+  const summary = await summarizeDay({ date, sessions, git });
 
   console.log(`# ${summary.date}\n`);
   console.log(`## Summary`);
@@ -35,4 +31,7 @@ export default async function dailySummary() {
 
   console.log(`## Stats`);
   console.log(summary.stats);
+
+  const filePath = await writeDailySummary(config.obsidian, summary);
+  console.error(`\nWritten to ${filePath}`);
 }

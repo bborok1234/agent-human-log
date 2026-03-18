@@ -1,5 +1,23 @@
 import type { DayData, DailySummary } from '../types/index.js';
 
+const SYSTEM_MESSAGE_PATTERNS = [
+  /^<local-command/,
+  /^<command-name>/,
+  /^<local-research/,
+  /^Base directory for this skill:/,
+  /^<system/,
+  /^<context/,
+  /^<\/?(local-command|command-name|local-research|system|context)/,
+];
+
+const MIN_MESSAGE_LENGTH = 5;
+
+function isSystemMessage(msg: string): boolean {
+  const firstLine = msg.split('\n')[0].trim();
+  if (firstLine.length < MIN_MESSAGE_LENGTH) return true;
+  return SYSTEM_MESSAGE_PATTERNS.some((p) => p.test(firstLine));
+}
+
 export async function summarizeDay(data: DayData): Promise<DailySummary> {
   const { date, sessions, git } = data;
 
@@ -26,11 +44,12 @@ function extractKeyMessages(
   sessions: DayData['sessions'],
 ): string[] {
   const allUserMessages = sessions.flatMap((s) =>
-    s.userMessages.map((msg) => ({
-      project: s.project,
-      message: msg,
-      timestamp: s.timestamp,
-    })),
+    s.userMessages
+      .filter((msg) => !isSystemMessage(msg))
+      .map((msg) => ({
+        project: s.project,
+        message: msg,
+      })),
   );
 
   const condensed = allUserMessages
