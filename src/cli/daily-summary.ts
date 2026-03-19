@@ -17,7 +17,7 @@ export default async function dailySummary() {
   console.log(`# ${summary.date}\n`);
   console.log(`## Summary`);
   for (const line of summary.summary) {
-    console.log(`- ${line}`);
+    console.log(line);
   }
   console.log('');
 

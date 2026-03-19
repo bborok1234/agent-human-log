@@ -143,7 +143,7 @@ server.registerTool(
       };
     }
 
-    const summary = extractSection(note, SECTION_MARKERS.yesterday);
+    const daySummary = extractSection(note, SECTION_MARKERS.summary);
     const carryForward = extractSection(note, SECTION_MARKERS.carryForward);
     const stats = extractSection(note, SECTION_MARKERS.stats);
     const focus = extractSection(note, SECTION_MARKERS.focus);
@@ -153,8 +153,8 @@ server.registerTool(
     if (focus.length > 0) {
       lines.push('', '## Focus was', ...focus);
     }
-    if (summary.length > 0) {
-      lines.push('', '## What was done', ...summary);
+    if (daySummary.length > 0) {
+      lines.push('', '## What was done', ...daySummary);
     }
     if (carryForward.length > 0) {
       lines.push('', '## Carry Forward', ...carryForward);

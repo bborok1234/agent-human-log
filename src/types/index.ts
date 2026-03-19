@@ -87,7 +87,7 @@ export interface DailyNote {
   filePath: string;
   sections: {
     focus?: string;
-    yesterday?: string;
+    summary?: string;
     workLog?: string[];
     carryForward?: string[];
     stats?: string;

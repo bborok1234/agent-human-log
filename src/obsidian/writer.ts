@@ -4,7 +4,7 @@ import type { ObsidianConfig, DailySummary } from '../types/index.js';
 
 const SECTION_MARKERS = {
   focus: '## Focus',
-  yesterday: '## Yesterday',
+  summary: '## Summary',
   workLog: '## Work Log',
   carryForward: '## Carry Forward',
   stats: '## Stats',
@@ -15,7 +15,7 @@ const TEMPLATE = `# {{date}}
 ## Focus
 
 
-## Yesterday
+## Summary
 
 
 ## Work Log
@@ -74,22 +74,26 @@ export async function writeDailySummary(
   const filePath = getDailyNotePath(config, summary.date);
   let note = await readOrCreateNote(filePath, summary.date);
 
-  if (summary.summary.length > 0) {
-    const summaryText = summary.summary.map((s) => `- ${s}`).join('\n');
-    note = replaceSectionContent(note, SECTION_MARKERS.yesterday, summaryText);
-  }
+  note = migrateOldSections(note);
 
-  if (summary.carryForward.length > 0) {
-    const carryText = summary.carryForward.map((c) => `- [ ] ${c}`).join('\n');
-    note = replaceSectionContent(note, SECTION_MARKERS.carryForward, carryText);
-  }
+  const summaryText = summary.summary.length > 0
+    ? summary.summary.join('\n')
+    : '';
+  note = replaceSectionContent(note, SECTION_MARKERS.summary, summaryText);
 
-  if (summary.stats) {
-    note = replaceSectionContent(note, SECTION_MARKERS.stats, summary.stats);
-  }
+  const carryText = summary.carryForward.length > 0
+    ? summary.carryForward.map((c) => `- [ ] ${c}`).join('\n')
+    : '';
+  note = replaceSectionContent(note, SECTION_MARKERS.carryForward, carryText);
+
+  note = replaceSectionContent(note, SECTION_MARKERS.stats, summary.stats || '');
 
   await writeFile(filePath, note, 'utf-8');
   return filePath;
+}
+
+function migrateOldSections(note: string): string {
+  return note.replace(/^## Yesterday$/m, '## Summary');
 }
 
 export async function appendWorkLogEntry(
