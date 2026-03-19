@@ -113,8 +113,12 @@ async function llmSummarize(
 
     return text
       .split('\n')
-      .map((line) => line.replace(/^[-•]\s*/, '').trim())
-      .filter((line) => line.length > 0);
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0)
+      .map((line) => {
+        if (line.startsWith('[') && line.endsWith(']')) return `\n**${line}**`;
+        return line.startsWith('-') ? line : `- ${line}`;
+      });
   } catch (error) {
     console.error('LLM summarization failed, falling back to extraction:', error);
     return fallbackSummarize(userMessages);
@@ -160,23 +164,27 @@ function extractCarryForward(
   return items.slice(0, 5);
 }
 
-const SUMMARIZER_PROMPT = `You are a work journal assistant. Given a developer's AI session messages and git commits from one day, produce a compressed daily summary.
+const SUMMARIZER_PROMPT = `You are a work journal assistant. Given a developer's AI session messages and git commits from one day, produce a TL;DR summary grouped by project.
 
-Rules:
-- Output 3-5 bullet points maximum, no matter how much input
-- Each bullet should describe an OUTCOME or DECISION, not a process
-- Git commits are the strongest signal of what was actually shipped — prioritize them
-- User messages show intent and context — use them to add "why" to the commits
-- Group related commits + messages into single bullets
-- Include project names in brackets like [project-name]
+Format:
+- Group by project. Each project header is "[project-name]" on its own line
+- Under each project, 3-5 bullet points summarizing what was shipped/decided
+- Each bullet describes an OUTCOME, not a process
+- Git commits are the strongest signal — they show what was actually shipped
+- User messages add "why" context — use them to enrich commit summaries
 - Write in the same language the developer used (Korean if input is Korean)
-- No preamble, no headers — just the bullet points
-- Each line starts with "- "
+- No preamble — start directly with the first project header
 
-Good:
-- [luffy] 에이전트 라우터를 5개 도메인 모듈로 분리 리팩토링, PR 생성
-- [luffy] 로드맵 V2가 너무 커져서 3개 파일로 분할 (로드맵/완료PR/결정사항)
-- [agent-human-log] Phase 1 MVP 완성 — 세션 분석 + Obsidian daily note 연동 + LLM 요약
+Good example:
+[luffy]
+- 에이전트 라우터를 5개 도메인 모듈로 분리 리팩토링, PR 3개 병합
+- ROADMAP_V2가 929줄로 비대해져서 3개 파일로 분할 (로드맵/완료PR/결정사항)
+- 에이전트 온보딩 메시지 + 추천 작업 버튼 기능 구현
+
+[agent-human-log]
+- Phase 1 MVP 완성 — 세션 분석기 + Obsidian daily note 연동 + LLM 요약
+- OpenCode SQLite 세션 파서 추가하여 최근 작업 데이터 수집
+- 로컬 실행 환경 구축 (npm run daily 한 줄 실행)
 
 Bad:
 - 라우터를 분리해야 하는지 논의함 (process, not outcome)

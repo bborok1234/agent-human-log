@@ -77,7 +77,7 @@ export async function writeDailySummary(
   note = migrateOldSections(note);
 
   const summaryText = summary.summary.length > 0
-    ? summary.summary.map((s) => `- ${s}`).join('\n')
+    ? summary.summary.join('\n')
     : '';
   note = replaceSectionContent(note, SECTION_MARKERS.summary, summaryText);
 
