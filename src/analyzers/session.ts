@@ -261,6 +261,7 @@ async function parseJsonlSession(
     agentsUsed: [],
     messageCount: userMessages.length,
     completedTodos: [],
+    pendingTodos: [],
     durationMinutes,
     filesEdited: [...new Set(allFilesEdited)],
     commandsRun: [...new Set(allCommandsRun)],

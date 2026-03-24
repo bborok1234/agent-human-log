@@ -19,14 +19,32 @@ const SYSTEM_MESSAGE_PATTERNS = [
 
 const MODE_PREFIX_PATTERN = /^\[(analyze-mode|search-mode|implement-mode|review-mode)\]\s*/i;
 
-const MIN_MESSAGE_LENGTH = 5;
-const MAX_MESSAGE_CHARS = 500;
-const MAX_TOTAL_MESSAGE_CHARS = 8000;
+const MIN_MESSAGE_LENGTH = 10;
+const MAX_MESSAGE_CHARS = 300;
+const MAX_TOTAL_MESSAGE_CHARS = 4000;
+
+/** Low-value noise patterns: confirmations, slash commands, short reactions */
+const NOISE_PATTERNS = [
+  /^(ㅇㅋ|ㅇㅇ|ㄱㄱ|ㅎㅎ|ㄴㄴ|ok|okay|yes|y|no|n|sure|good|nice|great|thx|thanks|감사|네|응|ㅇ|고고|오케이|좋아|맞아|됐어|해줘|진행해|시작해|계속|커밋|머지)$/i,
+  /^\//,  // slash commands
+  /^![\s\S]{0,20}$/,  // short shell commands (! prefix)
+  /^(git |npm |cd |ls )/,  // raw terminal commands pasted
+  /^<tool_result>/,
+  /^\[Request interrupted/,
+  /^Human:/,
+];
+
+function isNoiseMessage(msg: string): boolean {
+  const trimmed = msg.trim();
+  if (trimmed.length < MIN_MESSAGE_LENGTH) return true;
+  return NOISE_PATTERNS.some((p) => p.test(trimmed));
+}
 
 function isSystemMessage(msg: string): boolean {
   const firstLine = msg.split('\n')[0].trim();
   if (firstLine.length < MIN_MESSAGE_LENGTH) return true;
-  return SYSTEM_MESSAGE_PATTERNS.some((p) => p.test(firstLine));
+  if (SYSTEM_MESSAGE_PATTERNS.some((p) => p.test(firstLine))) return true;
+  return isNoiseMessage(firstLine);
 }
 
 function cleanUserMessage(msg: string): string {
@@ -101,6 +119,7 @@ export async function summarizeDay(
   let summary: string[] = [];
   let workTypes: string[] = [];
   let decisions: DecisionRecord[] = [];
+  const llmCarryForward: string[] = [];
 
   if (config && (cleanedMessages.length > 0 || commitMessages.length > 0)) {
     // Summarize per-project to guarantee grouped output
@@ -114,13 +133,24 @@ export async function summarizeDay(
       summary.push(...result.summary);
       workTypes.push(...result.workTypes);
       decisions.push(...result.decisions);
+      llmCarryForward.push(...result.carryForward);
     }
     workTypes = [...new Set(workTypes)];
   } else {
     summary = fallbackSummarize(cleanedMessages);
   }
 
-  const carryForward = extractCarryForward(sessions, git);
+  // Merge carry forward: LLM-extracted + static (pending todos + active branches)
+  const staticCarry = extractCarryForward(sessions, git);
+  const carrySet = new Set<string>();
+  const carryForward: string[] = [];
+  for (const item of [...llmCarryForward, ...staticCarry]) {
+    const key = item.toLowerCase().trim();
+    if (!carrySet.has(key)) {
+      carrySet.add(key);
+      carryForward.push(item);
+    }
+  }
 
   return {
     date,
@@ -181,6 +211,7 @@ interface LlmResult {
   summary: string[];
   workTypes: string[];
   decisions: DecisionRecord[];
+  carryForward: string[];
 }
 
 async function llmSummarizeProject(
@@ -224,7 +255,7 @@ async function llmSummarizeProject(
     return parseLlmResponse(text);
   } catch (error) {
     console.error('LLM summarization failed, falling back to extraction:', error);
-    return { summary: fallbackSummarize(data.messages), workTypes: [], decisions: [] };
+    return { summary: fallbackSummarize(data.messages), workTypes: [], decisions: [], carryForward: [] };
   }
 }
 
@@ -232,6 +263,7 @@ function parseLlmResponse(text: string): LlmResult {
   const summary: string[] = [];
   const workTypes = new Set<string>();
   const decisions: DecisionRecord[] = [];
+  const carryForward: string[] = [];
 
   // Try to extract JSON block first
   const jsonMatch = text.match(/```json\s*([\s\S]*?)```/);
@@ -285,13 +317,19 @@ function parseLlmResponse(text: string): LlmResult {
     // Skip project headers — we add them externally
     if (/^\[[\w/.-]+\]/.test(line) && !line.startsWith('[-')) continue;
 
+    // Carry forward lines (CF: prefix)
+    if (/^CF:\s*/i.test(line)) {
+      carryForward.push(line.replace(/^CF:\s*/i, '').trim());
+      continue;
+    }
+
     // Accept various bullet styles: -, •, *, and normalize to -
     if (/^[-•*]\s/.test(line)) {
       summary.push(line.replace(/^[•*]\s/, '- '));
     }
   }
 
-  return { summary, workTypes: [...workTypes], decisions };
+  return { summary, workTypes: [...workTypes], decisions, carryForward };
 }
 
 function fallbackSummarize(messages: string[]): string[] {
@@ -394,19 +432,27 @@ function buildToolContext(sessions: DayData['sessions']): string[] {
 
 function extractCarryForward(
   sessions: DayData['sessions'],
-  _git: DayData['git'],
+  git: DayData['git'],
 ): string[] {
   const items: string[] = [];
+  const seen = new Set<string>();
 
+  const addUnique = (item: string) => {
+    const key = item.toLowerCase().trim();
+    if (!seen.has(key)) {
+      seen.add(key);
+      items.push(item);
+    }
+  };
+
+  // 1. Pending/in-progress todos from OpenCode
   for (const session of sessions) {
-    for (const todo of session.completedTodos) {
-      if (todo.toLowerCase().includes('todo') || todo.toLowerCase().includes('pending')) {
-        items.push(todo);
-      }
+    for (const todo of session.pendingTodos) {
+      addUnique(todo);
     }
   }
 
-  return items.slice(0, 5);
+  return items.slice(0, 10);
 }
 
 const PROJECT_SUMMARIZER_PROMPT = `You are a work journal assistant. Given ONE project's data from a developer's day, produce a concise summary.
@@ -418,7 +464,17 @@ const PROJECT_SUMMARIZER_PROMPT = `You are a work journal assistant. Given ONE p
 - Write in the same language the developer used (Korean if input is Korean)
 - No preamble, no project header — start directly with bullet points
 
-## After the bullets, add a JSON metadata block:
+## After the summary bullets, add these sections in order:
+
+### CARRY FORWARD section (things to check tomorrow):
+Write lines starting with "CF:" — one per item. Extract from context:
+- Work explicitly deferred ("내일", "나중에", "다음에")
+- Started but not completed tasks
+- Issues discovered but not yet fixed (bugs, glitches, edge cases)
+- Pending reviews, merges, or deployments
+Write actionable items, not branch names. Skip this section entirely if everything was completed.
+
+### JSON metadata block:
 \`\`\`json
 {
   "workTypes": ["feature", "bugfix", "refactor", "investigation", "ops", "docs", "perf"],
@@ -427,12 +483,17 @@ const PROJECT_SUMMARIZER_PROMPT = `You are a work journal assistant. Given ONE p
   ]
 }
 \`\`\`
-Only include work types that actually apply. Only include decisions if a genuine choice was made. Empty array if none.
+Only include work types that actually apply. Only include decisions if a genuine choice was made.
 
 ## Good bullets:
 - PR-PERF 완성 — 배치 사이즈 50→100명 튜닝, 라운드 정렬로 성능 최적화
 - auth 미들웨어에서 세션 토큰을 httpOnly 쿠키로 전환하여 XSS 취약점 해소
 - Phase 1 MVP 완성 — 세션 분석기 + Obsidian daily note 연동
+
+## Good carry forward examples:
+CF: SSE UI 글리치 원인 파악 필요 — 태그매칭 중 프론트엔드 중단 현상
+CF: 100명 이상 배치 테스트 미검증 — 프로덕션 배포 전 확인 필요
+CF: CSRF 토큰 구현 — httpOnly 전환 후 남은 보안 작업
 
 ## Bad bullets (DO NOT write like this):
 - 라우터를 분리해야 하는지 논의함 (process, not outcome)

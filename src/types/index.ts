@@ -39,6 +39,8 @@ export interface SessionEntry {
   agentsUsed: string[];
   messageCount: number;
   completedTodos: string[];
+  /** Pending/in-progress todos from the session */
+  pendingTodos: string[];
   /** Estimated from first/last message timestamps */
   durationMinutes: number;
   /** Files modified via Edit/Write tools during session */
