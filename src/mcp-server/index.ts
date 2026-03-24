@@ -74,15 +74,24 @@ server.registerTool(
     const lines = [
       `Written to ${filePath}`,
       '',
-      `Sessions: ${sessions.length}`,
-      `Git repos: ${git.length}`,
-      '',
-      '## Summary',
-      ...summary.summary.map((s) => `- ${s}`),
-      '',
-      `## Stats`,
-      summary.stats,
+      `Sessions: ${sessions.length} | Git repos: ${git.length}`,
     ];
+
+    if (summary.projects.length > 0) {
+      lines.push(`Projects: ${summary.projects.join(', ')}`);
+    }
+    if (summary.workTypes.length > 0) {
+      lines.push(`Work types: ${summary.workTypes.map((t) => `#${t}`).join(' ')}`);
+    }
+
+    lines.push('', '## Summary', ...summary.summary, '', '## Stats', summary.stats);
+
+    if (summary.decisions.length > 0) {
+      lines.push('', '## Decisions');
+      for (const d of summary.decisions) {
+        lines.push(`- ${d.title}: ${d.rationale}`);
+      }
+    }
 
     if (summary.carryForward.length > 0) {
       lines.push('', '## Carry Forward');

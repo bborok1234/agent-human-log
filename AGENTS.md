@@ -99,7 +99,9 @@ Data Sources              Analyzers              Summarizer           Output
 
 ## PHASE PLAN
 
-### Phase 1 — Daily Summary (MVP)
+> 상세 로드맵: [`docs/ROADMAP.md`](docs/ROADMAP.md) — PR 단위 작업 분해, 파일별 변경 범위, 예상 결과물 포함.
+
+### Phase 1 — Daily Summary (MVP) ✅ Complete (v0.1.0)
 - MCP server with `daily_summary`, `log_milestone`, `get_yesterday`
 - Session analyzer (Claude Code JSONL + OpenCode SQLite)
 - Git analyzer (multi-repo, configured paths)
@@ -107,16 +109,14 @@ Data Sources              Analyzers              Summarizer           Output
 - Obsidian writer (daily note append/create)
 - OpenCode skill for auto-logging during sessions
 
-### Phase 2 — Memory + Recommendations
-- Persistent memory store (SQLite) for priorities, schedules
-- `set_focus` and `get_recommendations` tools
-- Cross-day context: carry forward, recurring themes
-- Morning brief: "Here's what you said was important"
+### Phase 2 — 의도 추출 강화 + Obsidian 네이티브 활용
+- **PR #5**: 풍부한 메시지 추출, tool_use 신호 수집, frontmatter/wikilink, 작업 유형 태깅
+- **PR #6**: Carry forward 복원 (OpenCode todo 연동), 크로스데이 이월
+- **PR #7**: 주간 요약 자동 생성, Dataview 연동 가이드
 
-### Phase 3 — Visualization
-- Web dashboard (activity heatmap, weekly/monthly/yearly views)
-- Obsidian Dataview-compatible frontmatter for in-vault queries
-- Productivity patterns: focus time, context switches, project distribution
+### Phase 3 — 메모리 + 생산성 패턴
+- **PR #8**: SQLite 메모리 스토어, `set_focus`/`get_recommendations` 도구
+- **PR #9**: 세션 흐름 분석 (도구 패턴 기반), Obsidian 시각화 지원
 
 ## CONVENTIONS
 

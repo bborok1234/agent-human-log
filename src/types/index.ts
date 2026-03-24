@@ -41,6 +41,12 @@ export interface SessionEntry {
   completedTodos: string[];
   /** Estimated from first/last message timestamps */
   durationMinutes: number;
+  /** Files modified via Edit/Write tools during session */
+  filesEdited: string[];
+  /** Meaningful commands run via Bash tool (test, build, deploy, git) */
+  commandsRun: string[];
+  /** Tool invocation counts by tool name */
+  toolUseCounts: Record<string, number>;
 }
 
 // --- Git Analyzer ---
@@ -79,6 +85,26 @@ export interface DailySummary {
   carryForward: string[];
   /** Stats line: "N commits · N files · +N/-N · N sessions · ~Nh" */
   stats: string;
+  /** Projects involved in this day's work */
+  projects: string[];
+  /** Classified work types: bugfix, feature, refactor, investigation, ops, docs */
+  workTypes: string[];
+  /** Key decisions made during the day */
+  decisions: DecisionRecord[];
+  /** Aggregated list of files edited across all sessions */
+  filesEdited: string[];
+  /** Total hours worked */
+  hours: number;
+  /** Total commits */
+  commits: number;
+  /** Total sessions */
+  sessions: number;
+}
+
+export interface DecisionRecord {
+  title: string;
+  rationale: string;
+  tradeoff?: string;
 }
 
 // --- Obsidian Writer ---

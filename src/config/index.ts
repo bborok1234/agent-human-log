@@ -21,7 +21,7 @@ const ConfigSchema = z.object({
   summarizer: z.object({
     provider: z.enum(['anthropic', 'openai', 'ollama']).default('anthropic'),
     model: z.string().default('claude-sonnet-4-20250514'),
-    maxTokens: z.number().default(500),
+    maxTokens: z.number().default(1024),
   }),
 });
 
