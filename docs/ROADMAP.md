@@ -381,8 +381,8 @@ PR #6 — Carry Forward 복원 + 크로스데이           ✅ 완료 (2026-03-2
   → + LLM 기반 carry forward (CF: prefix 방식)
 PR #7 — 주간 요약 + Dataview 연동                ✅ 완료 (2026-03-24)
 
-PR #8 — 메모리 스토어 + 추천                     ★★☆ 다음
-  → "오늘 뭘 해야 하지?" 에 답하는 기능. Phase 2 핵심.
+PR #8 — 메모리 스토어 + 추천                     ✅ 완료 (2026-03-24)
+  → SQLite 메모리 스토어 + set_focus/get_recommendations/resolve_carry_item MCP 도구
 
 PR #9 — 세션 흐름 분석 + 생산성 패턴              ★☆☆ 후순위
   → 흥미롭지만 핵심 가치 대비 복잡도가 높음. 앞선 PR들이 안정된 후.

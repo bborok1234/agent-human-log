@@ -5,6 +5,12 @@ export interface Config {
   git: GitConfig;
   session: SessionConfig;
   summarizer: SummarizerConfig;
+  memory: MemoryConfig;
+}
+
+export interface MemoryConfig {
+  /** Path to SQLite database file */
+  dbPath: string;
 }
 
 export interface ObsidianConfig {

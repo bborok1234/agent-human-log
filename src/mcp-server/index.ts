@@ -14,6 +14,12 @@ import {
   SECTION_MARKERS,
 } from '../obsidian/writer.js';
 import { summarizeWeek } from '../summarizer/weekly.js';
+import {
+  saveDailySummary,
+  setFocus as setFocusInDb,
+  getRecommendations,
+  resolveCarryItemByContent,
+} from '../memory/store.js';
 import type { Config } from '../types/index.js';
 
 let configCache: Config | null = null;
@@ -72,6 +78,9 @@ server.registerTool(
 
     const summary = await summarizeDay({ date: targetDate, sessions, git }, config.summarizer);
     const filePath = await writeDailySummary(config.obsidian, summary);
+
+    // Persist to SQLite memory store
+    saveDailySummary(config.memory, summary);
 
     const lines = [
       `Written to ${filePath}`,
@@ -223,6 +232,117 @@ server.registerTool(
     };
   },
 );
+
+server.registerTool(
+  'set_focus',
+  {
+    description:
+      'Set today\'s focus — a short phrase describing what you want to prioritize. Takes 30 seconds. Saved to both Obsidian and memory store.',
+    inputSchema: z.object({
+      focus: z.string().describe('What to focus on today (1-2 sentences)'),
+      date: z
+        .string()
+        .optional()
+        .describe('Date in YYYY-MM-DD format. Defaults to today.'),
+    }),
+  },
+  async ({ focus, date }) => {
+    const targetDate = date ?? todayStr();
+    const config = await getConfig();
+
+    // Save to SQLite
+    setFocusInDb(config.memory, targetDate, focus);
+
+    // Write to Obsidian Focus section
+    const filePath = await writeFocusToObsidian(config, targetDate, focus);
+
+    return {
+      content: [{ type: 'text' as const, text: `Focus set for ${targetDate}: ${focus}\nWritten to ${filePath}` }],
+    };
+  },
+);
+
+server.registerTool(
+  'get_recommendations',
+  {
+    description:
+      'Get prioritized recommendations for today based on carry-forward items, recent projects, and set focus. Use at the start of a work session.',
+    inputSchema: z.object({
+      date: z
+        .string()
+        .optional()
+        .describe('Date in YYYY-MM-DD format. Defaults to today.'),
+    }),
+  },
+  async ({ date }) => {
+    const targetDate = date ?? todayStr();
+    const config = await getConfig();
+
+    const recs = getRecommendations(config.memory, targetDate);
+
+    if (recs.length === 0) {
+      return {
+        content: [{ type: 'text' as const, text: `No recommendations for ${targetDate}. Start fresh!` }],
+      };
+    }
+
+    const lines = [`## 오늘 추천 (${targetDate})`, ''];
+    let idx = 1;
+    for (const rec of recs) {
+      let prefix = '';
+      if (rec.type === 'focus') prefix = '🎯 ';
+      else if (rec.type === 'carry_forward' && rec.meta?.daysOld && rec.meta.daysOld >= 3) prefix = '⚠️ ';
+
+      let suffix = '';
+      if (rec.type === 'carry_forward' && rec.meta?.daysOld) {
+        suffix = ` (${rec.meta.daysOld}일째 이월)`;
+      }
+      if (rec.type === 'recent_project') {
+        suffix = ' (최근 작업)';
+      }
+
+      lines.push(`${idx}. ${prefix}${rec.text}${suffix}`);
+      idx++;
+    }
+
+    return {
+      content: [{ type: 'text' as const, text: lines.join('\n') }],
+    };
+  },
+);
+
+server.registerTool(
+  'resolve_carry_item',
+  {
+    description:
+      'Mark a carry-forward item as done or dropped. Use when a pending task is completed or no longer relevant.',
+    inputSchema: z.object({
+      content: z.string().describe('The carry-forward item text to resolve (partial match ok)'),
+      status: z.enum(['done', 'dropped']).describe('Resolution status'),
+    }),
+  },
+  async ({ content, status }) => {
+    const config = await getConfig();
+    const changed = resolveCarryItemByContent(config.memory, content, status);
+
+    if (changed === 0) {
+      return {
+        content: [{ type: 'text' as const, text: `No open carry-forward item found matching: "${content}"` }],
+      };
+    }
+
+    return {
+      content: [{ type: 'text' as const, text: `Resolved ${changed} item(s) as ${status}: "${content}"` }],
+    };
+  },
+);
+
+// --- Helper: Write focus to Obsidian ---
+
+async function writeFocusToObsidian(config: Config, date: string, focus: string): Promise<string> {
+  const { writeFocusSection } = await import('../obsidian/writer.js');
+  return writeFocusSection(config.obsidian, date, focus);
+}
 
 async function main() {
   const transport = new StdioServerTransport();

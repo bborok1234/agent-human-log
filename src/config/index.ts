@@ -23,6 +23,9 @@ const ConfigSchema = z.object({
     model: z.string().default('claude-haiku-4-5-20251001'),
     maxTokens: z.number().default(2048),
   }),
+  memory: z.object({
+    dbPath: z.string().default('~/.local/share/agent-human-log/memory.db'),
+  }).default({}),
 });
 
 function expandHome(filepath: string): string {
@@ -49,6 +52,9 @@ function resolveAllPaths(config: Config): Config {
       openCodeDb: expandHome(config.session.openCodeDb),
     },
     summarizer: config.summarizer,
+    memory: {
+      dbPath: expandHome(config.memory.dbPath),
+    },
   };
 }
 

@@ -3,6 +3,7 @@ import { getAllSessionsForDate } from '../analyzers/session.js';
 import { getGitSummaryForDate } from '../analyzers/git.js';
 import { summarizeDay } from '../summarizer/index.js';
 import { writeDailySummary } from '../obsidian/writer.js';
+import { saveDailySummary } from '../memory/store.js';
 
 export default async function dailySummary() {
   const date = process.argv[3] ?? new Date().toLocaleDateString('en-CA');
@@ -51,5 +52,6 @@ export default async function dailySummary() {
   console.log(summary.stats);
 
   const filePath = await writeDailySummary(config.obsidian, summary);
+  saveDailySummary(config.memory, summary);
   console.error(`\nWritten to ${filePath}`);
 }

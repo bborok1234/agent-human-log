@@ -456,4 +456,16 @@ export async function writeWeeklySummary(
   return filePath;
 }
 
+export async function writeFocusSection(
+  config: ObsidianConfig,
+  date: string,
+  focus: string,
+): Promise<string> {
+  const filePath = getDailyNotePath(config, date);
+  let note = await readOrCreateNote(filePath, date);
+  note = replaceSectionContent(note, SECTION_MARKERS.focus, focus);
+  await writeFile(filePath, note, 'utf-8');
+  return filePath;
+}
+
 export { SECTION_MARKERS, getDailyNotePath, getWeeklyNotePath };
