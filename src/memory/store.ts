@@ -29,6 +29,26 @@ export interface StoredDailySummary {
   createdAt: string;
 }
 
+export interface Decision {
+  id: number;
+  date: string;
+  project: string | null;
+  title: string;
+  context: string | null;
+  alternatives: string[];
+  chosen: string | null;
+  rationale: string;
+  tradeoff: string | null;
+  createdAt: string;
+}
+
+export interface SearchResult {
+  date: string;
+  type: 'summary' | 'decision' | 'carry_item';
+  project: string | null;
+  text: string;
+}
+
 // --- Store ---
 
 let dbInstance: Database.Database | null = null;
@@ -75,6 +95,22 @@ function initSchema(db: Database.Database): void {
 
     CREATE INDEX IF NOT EXISTS idx_carry_item_status ON carry_item(status);
     CREATE INDEX IF NOT EXISTS idx_carry_item_origin ON carry_item(origin_date);
+
+    CREATE TABLE IF NOT EXISTS decision (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      date TEXT NOT NULL,
+      project TEXT,
+      title TEXT NOT NULL,
+      context TEXT,
+      alternatives TEXT NOT NULL DEFAULT '[]',
+      chosen TEXT,
+      rationale TEXT NOT NULL,
+      tradeoff TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_decision_date ON decision(date);
+    CREATE INDEX IF NOT EXISTS idx_decision_project ON decision(project);
   `);
 }
 
@@ -325,6 +361,156 @@ export function getRecommendations(config: MemoryConfig, date: string): Recommen
   recommendations.sort((a, b) => a.priority - b.priority);
 
   return recommendations;
+}
+
+// --- Decision Operations ---
+
+export function logDecision(
+  config: MemoryConfig,
+  date: string,
+  title: string,
+  rationale: string,
+  opts?: { project?: string; context?: string; alternatives?: string[]; chosen?: string; tradeoff?: string },
+): Decision {
+  const db = getDb(config);
+
+  const result = db.prepare(`
+    INSERT INTO decision (date, project, title, context, alternatives, chosen, rationale, tradeoff)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    date,
+    opts?.project ?? null,
+    title,
+    opts?.context ?? null,
+    JSON.stringify(opts?.alternatives ?? []),
+    opts?.chosen ?? null,
+    rationale,
+    opts?.tradeoff ?? null,
+  );
+
+  return {
+    id: result.lastInsertRowid as number,
+    date,
+    project: opts?.project ?? null,
+    title,
+    context: opts?.context ?? null,
+    alternatives: opts?.alternatives ?? [],
+    chosen: opts?.chosen ?? null,
+    rationale,
+    tradeoff: opts?.tradeoff ?? null,
+    createdAt: new Date().toISOString(),
+  };
+}
+
+export function getDecisionsForDate(config: MemoryConfig, date: string): Decision[] {
+  const db = getDb(config);
+  const rows = db.prepare('SELECT * FROM decision WHERE date = ? ORDER BY created_at ASC')
+    .all(date) as Record<string, unknown>[];
+  return rows.map(rowToDecision);
+}
+
+function rowToDecision(row: Record<string, unknown>): Decision {
+  return {
+    id: row.id as number,
+    date: row.date as string,
+    project: row.project as string | null,
+    title: row.title as string,
+    context: row.context as string | null,
+    alternatives: JSON.parse(row.alternatives as string),
+    chosen: row.chosen as string | null,
+    rationale: row.rationale as string,
+    tradeoff: row.tradeoff as string | null,
+    createdAt: row.created_at as string,
+  };
+}
+
+// --- Search Operations ---
+
+export function searchHistory(
+  config: MemoryConfig,
+  query: string,
+  opts?: { project?: string; days?: number },
+): SearchResult[] {
+  const db = getDb(config);
+  const results: SearchResult[] = [];
+  const days = opts?.days ?? 30;
+  const pattern = `%${query}%`;
+
+  // Search daily summaries
+  const summaryQuery = opts?.project
+    ? `SELECT date, projects, summary FROM daily_summary WHERE summary LIKE ? AND projects LIKE ? ORDER BY date DESC LIMIT ?`
+    : `SELECT date, projects, summary FROM daily_summary WHERE summary LIKE ? ORDER BY date DESC LIMIT ?`;
+
+  const summaryParams = opts?.project
+    ? [pattern, `%${opts.project}%`, days]
+    : [pattern, days];
+
+  const summaries = db.prepare(summaryQuery).all(...summaryParams) as Record<string, unknown>[];
+
+  for (const row of summaries) {
+    // Extract matching lines from summary
+    const summary = row.summary as string;
+    const matchingLines = summary.split('\n')
+      .filter((l) => l.toLowerCase().includes(query.toLowerCase()))
+      .slice(0, 3);
+
+    if (matchingLines.length > 0) {
+      const projects = JSON.parse(row.projects as string) as string[];
+      results.push({
+        date: row.date as string,
+        type: 'summary',
+        project: projects[0] ?? null,
+        text: matchingLines.join('\n'),
+      });
+    }
+  }
+
+  // Search decisions
+  const decisionQuery = opts?.project
+    ? `SELECT * FROM decision WHERE (title LIKE ? OR rationale LIKE ? OR context LIKE ?) AND project = ? ORDER BY date DESC LIMIT ?`
+    : `SELECT * FROM decision WHERE (title LIKE ? OR rationale LIKE ? OR context LIKE ?) ORDER BY date DESC LIMIT ?`;
+
+  const decisionParams = opts?.project
+    ? [pattern, pattern, pattern, opts.project, days]
+    : [pattern, pattern, pattern, days];
+
+  const decisions = db.prepare(decisionQuery).all(...decisionParams) as Record<string, unknown>[];
+
+  for (const row of decisions) {
+    const d = rowToDecision(row);
+    results.push({
+      date: d.date,
+      type: 'decision',
+      project: d.project,
+      text: `${d.title}: ${d.rationale}${d.tradeoff ? ` (트레이드오프: ${d.tradeoff})` : ''}`,
+    });
+  }
+
+  // Search carry items
+  const carryQuery = opts?.project
+    ? `SELECT * FROM carry_item WHERE content LIKE ? AND project = ? ORDER BY origin_date DESC LIMIT ?`
+    : `SELECT * FROM carry_item WHERE content LIKE ? ORDER BY origin_date DESC LIMIT ?`;
+
+  const carryParams = opts?.project
+    ? [pattern, opts.project, days]
+    : [pattern, days];
+
+  const carries = db.prepare(carryQuery).all(...carryParams) as Record<string, unknown>[];
+
+  for (const row of carries) {
+    const item = rowToCarryItem(row);
+    results.push({
+      date: item.originDate,
+      type: 'carry_item',
+      project: item.project,
+      text: `${item.content} [${item.status}]`,
+    });
+  }
+
+  // Sort by date descending
+  results.sort((a, b) => b.date.localeCompare(a.date));
+
+  return results;
 }
 
 // --- Cleanup ---
