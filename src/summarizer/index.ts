@@ -284,9 +284,6 @@ function parseLlmResponse(text: string): LlmResult {
       if (parsed.workTypes && Array.isArray(parsed.workTypes)) {
         for (const t of parsed.workTypes) workTypes.add(t);
       }
-      if (parsed.carryForward && Array.isArray(parsed.carryForward)) {
-        carryForward.push(...parsed.carryForward.filter((s: unknown) => typeof s === 'string' && s.length > 0));
-      }
     } catch {
       // JSON parsing failed, continue with text parsing
     }
@@ -319,6 +316,12 @@ function parseLlmResponse(text: string): LlmResult {
 
     // Skip project headers — we add them externally
     if (/^\[[\w/.-]+\]/.test(line) && !line.startsWith('[-')) continue;
+
+    // Carry forward lines (CF: prefix)
+    if (/^CF:\s*/i.test(line)) {
+      carryForward.push(line.replace(/^CF:\s*/i, '').trim());
+      continue;
+    }
 
     // Accept various bullet styles: -, •, *, and normalize to -
     if (/^[-•*]\s/.test(line)) {
@@ -449,16 +452,6 @@ function extractCarryForward(
     }
   }
 
-  // 2. Active feature/fix branches (skip permanent branches)
-  const WIP_BRANCH_PATTERN = /^(feat|fix|hotfix|bugfix|refactor|chore)\//;
-  for (const g of git) {
-    for (const branch of g.activeBranches.slice(0, 3)) {
-      if (WIP_BRANCH_PATTERN.test(branch)) {
-        addUnique(`[${g.repo}] 활성 브랜치: ${branch}`);
-      }
-    }
-  }
-
   return items.slice(0, 10);
 }
 
@@ -471,23 +464,36 @@ const PROJECT_SUMMARIZER_PROMPT = `You are a work journal assistant. Given ONE p
 - Write in the same language the developer used (Korean if input is Korean)
 - No preamble, no project header — start directly with bullet points
 
-## After the bullets, add a JSON metadata block:
+## After the summary bullets, add these sections in order:
+
+### CARRY FORWARD section (things to check tomorrow):
+Write lines starting with "CF:" — one per item. Extract from context:
+- Work explicitly deferred ("내일", "나중에", "다음에")
+- Started but not completed tasks
+- Issues discovered but not yet fixed (bugs, glitches, edge cases)
+- Pending reviews, merges, or deployments
+Write actionable items, not branch names. Skip this section entirely if everything was completed.
+
+### JSON metadata block:
 \`\`\`json
 {
   "workTypes": ["feature", "bugfix", "refactor", "investigation", "ops", "docs", "perf"],
   "decisions": [
     { "title": "...", "rationale": "...", "tradeoff": "..." }
-  ],
-  "carryForward": ["미완료 작업 설명"]
+  ]
 }
 \`\`\`
-Only include work types that actually apply. Only include decisions if a genuine choice was made. Empty array if none.
-carryForward: items the developer explicitly deferred ("내일", "나중에", "다음에") or started but didn't finish. Empty array if everything was completed.
+Only include work types that actually apply. Only include decisions if a genuine choice was made.
 
 ## Good bullets:
 - PR-PERF 완성 — 배치 사이즈 50→100명 튜닝, 라운드 정렬로 성능 최적화
 - auth 미들웨어에서 세션 토큰을 httpOnly 쿠키로 전환하여 XSS 취약점 해소
 - Phase 1 MVP 완성 — 세션 분석기 + Obsidian daily note 연동
+
+## Good carry forward examples:
+CF: SSE UI 글리치 원인 파악 필요 — 태그매칭 중 프론트엔드 중단 현상
+CF: 100명 이상 배치 테스트 미검증 — 프로덕션 배포 전 확인 필요
+CF: CSRF 토큰 구현 — httpOnly 전환 후 남은 보안 작업
 
 ## Bad bullets (DO NOT write like this):
 - 라우터를 분리해야 하는지 논의함 (process, not outcome)
