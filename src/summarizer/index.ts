@@ -19,14 +19,32 @@ const SYSTEM_MESSAGE_PATTERNS = [
 
 const MODE_PREFIX_PATTERN = /^\[(analyze-mode|search-mode|implement-mode|review-mode)\]\s*/i;
 
-const MIN_MESSAGE_LENGTH = 5;
-const MAX_MESSAGE_CHARS = 500;
-const MAX_TOTAL_MESSAGE_CHARS = 8000;
+const MIN_MESSAGE_LENGTH = 10;
+const MAX_MESSAGE_CHARS = 300;
+const MAX_TOTAL_MESSAGE_CHARS = 4000;
+
+/** Low-value noise patterns: confirmations, slash commands, short reactions */
+const NOISE_PATTERNS = [
+  /^(ㅇㅋ|ㅇㅇ|ㄱㄱ|ㅎㅎ|ㄴㄴ|ok|okay|yes|y|no|n|sure|good|nice|great|thx|thanks|감사|네|응|ㅇ|고고|오케이|좋아|맞아|됐어|해줘|진행해|시작해|계속|커밋|머지)$/i,
+  /^\//,  // slash commands
+  /^![\s\S]{0,20}$/,  // short shell commands (! prefix)
+  /^(git |npm |cd |ls )/,  // raw terminal commands pasted
+  /^<tool_result>/,
+  /^\[Request interrupted/,
+  /^Human:/,
+];
+
+function isNoiseMessage(msg: string): boolean {
+  const trimmed = msg.trim();
+  if (trimmed.length < MIN_MESSAGE_LENGTH) return true;
+  return NOISE_PATTERNS.some((p) => p.test(trimmed));
+}
 
 function isSystemMessage(msg: string): boolean {
   const firstLine = msg.split('\n')[0].trim();
   if (firstLine.length < MIN_MESSAGE_LENGTH) return true;
-  return SYSTEM_MESSAGE_PATTERNS.some((p) => p.test(firstLine));
+  if (SYSTEM_MESSAGE_PATTERNS.some((p) => p.test(firstLine))) return true;
+  return isNoiseMessage(firstLine);
 }
 
 function cleanUserMessage(msg: string): string {
