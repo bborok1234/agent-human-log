@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
@@ -19,6 +20,9 @@ import {
   setFocus as setFocusInDb,
   getRecommendations,
   resolveCarryItemByContent,
+  logDecision,
+  getDecisionsForDate,
+  searchHistory,
 } from '../memory/store.js';
 import type { Config } from '../types/index.js';
 
@@ -78,6 +82,17 @@ server.registerTool(
 
     const summary = await summarizeDay({ date: targetDate, sessions, git }, config.summarizer);
     const filePath = await writeDailySummary(config.obsidian, summary);
+
+    // Merge standalone decisions logged during the day
+    const standaloneDecisions = getDecisionsForDate(config.memory, targetDate);
+    for (const d of standaloneDecisions) {
+      const alreadyExists = summary.decisions.some(
+        (existing) => existing.title.toLowerCase() === d.title.toLowerCase(),
+      );
+      if (!alreadyExists) {
+        summary.decisions.push({ title: d.title, rationale: d.rationale, tradeoff: d.tradeoff ?? undefined });
+      }
+    }
 
     // Persist to SQLite memory store
     saveDailySummary(config.memory, summary);
@@ -341,6 +356,85 @@ server.registerTool(
 
     return {
       content: [{ type: 'text' as const, text: `Resolved ${changed} item(s) as ${status}: "${content}"` }],
+    };
+  },
+);
+
+server.registerTool(
+  'log_decision',
+  {
+    description:
+      'Record a decision made during work. Use when choosing between alternatives, making architectural choices, or selecting approaches. The decision is stored independently and also included in the next daily summary.',
+    inputSchema: z.object({
+      title: z.string().describe('Brief title of the decision (e.g., "httpOnly 쿠키로 전환")'),
+      rationale: z.string().describe('Why this decision was made'),
+      project: z.string().optional().describe('Project name'),
+      context: z.string().optional().describe('Background situation that led to this decision'),
+      alternatives: z.array(z.string()).optional().describe('Other options that were considered'),
+      chosen: z.string().optional().describe('The specific option that was chosen'),
+      tradeoff: z.string().optional().describe('Known tradeoffs of this decision'),
+      date: z.string().optional().describe('Date in YYYY-MM-DD format. Defaults to today.'),
+    }),
+  },
+  async ({ title, rationale, project, context, alternatives, chosen, tradeoff, date }) => {
+    const targetDate = date ?? todayStr();
+    const config = await getConfig();
+
+    const decision = logDecision(config.memory, targetDate, title, rationale, {
+      project,
+      context,
+      alternatives,
+      chosen,
+      tradeoff,
+    });
+
+    // Also write to Obsidian as a callout
+    const callout = [
+      `> [!decision] ${title}`,
+      `> ${rationale}`,
+      tradeoff ? `> **트레이드오프**: ${tradeoff}` : null,
+    ].filter(Boolean).join('\n');
+
+    await appendWorkLogEntry(config.obsidian, targetDate, callout);
+
+    return {
+      content: [{ type: 'text' as const, text: `Decision #${decision.id} recorded: ${title}\n${rationale}` }],
+    };
+  },
+);
+
+server.registerTool(
+  'search_history',
+  {
+    description:
+      'Search past work history — summaries, decisions, and carry-forward items. Use to find past context, recall decisions, or check what was done on a project.',
+    inputSchema: z.object({
+      query: z.string().describe('Search keyword(s)'),
+      project: z.string().optional().describe('Filter by project name'),
+      days: z.number().optional().describe('How many days back to search (default: 30)'),
+    }),
+  },
+  async ({ query, project, days }) => {
+    const config = await getConfig();
+    const results = searchHistory(config.memory, query, { project, days });
+
+    if (results.length === 0) {
+      return {
+        content: [{ type: 'text' as const, text: `No results for "${query}"${project ? ` in ${project}` : ''}` }],
+      };
+    }
+
+    const lines = [`## 검색 결과: "${query}"`, ''];
+    for (const r of results) {
+      const typeEmoji = r.type === 'decision' ? '⚖️' : r.type === 'carry_item' ? '📋' : '📝';
+      const projectTag = r.project ? `[${r.project}]` : '';
+      lines.push(`${typeEmoji} **${r.date}** ${projectTag}`);
+      lines.push(r.text);
+      lines.push('');
+    }
+
+    return {
+      content: [{ type: 'text' as const, text: lines.join('\n') }],
     };
   },
 );

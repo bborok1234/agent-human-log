@@ -14,6 +14,9 @@ switch (command) {
   case 'rec':
     import('./recommend.js').then((mod) => mod.default());
     break;
+  case 'setup':
+    import('./setup.js').then((mod) => mod.default());
+    break;
   default:
     console.log('Usage: ahl <command> [date]');
     console.log('');
@@ -22,5 +25,6 @@ switch (command) {
     console.log('  summary    Alias for daily');
     console.log('  weekly     Generate weekly summary (date defaults to this week)');
     console.log('  recommend  Get today\'s prioritized recommendations');
+    console.log('  setup      Register MCP server with Claude Code');
     process.exit(0);
 }

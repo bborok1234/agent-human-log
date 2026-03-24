@@ -388,6 +388,26 @@ PR #9 — 세션 흐름 분석 + 생산성 패턴              ✅ 완료 (2026-
   → 도구 시퀀스 기반 흐름 분류 (investigation/implementation/refactoring/verification/ops) + Obsidian frontmatter 시각화 데이터
 ```
 
+## PR #10 — 결정 기록 도구 + 히스토리 검색 + 슬래시 커맨드
+
+> 핵심: 에이전트 워크플로에 자연스럽게 통합. 슬래시 커맨드로 일상 작업 중 기록/검색.
+
+### 10-A. `log_decision` MCP 도구 + DB 테이블
+- `decision` 테이블 독립 저장 (결정 시점에 즉시 기록)
+- `daily_summary` 실행 시 해당 날짜의 standalone decisions 자동 병합
+
+### 10-B. `search_history` MCP 도구
+- SQLite LIKE 검색으로 summary + decisions + carry_items 통합 검색
+- 프로젝트/날짜 범위 필터 지원
+
+### 10-C. 슬래시 커맨드 스킬 4개
+- `/morning` — 아침 브리핑 (어제 요약 + 오늘 추천 + 포커스 설정)
+- `/log-decision` — 자연어로 결정 기록
+- `/search` — 히스토리 검색
+- `/daily` — 일일 요약 수동 트리거
+
+---
+
 ## 주의사항
 
 - 각 PR은 에이전트가 한 번에 구현할 수 있는 규모로 설계됨

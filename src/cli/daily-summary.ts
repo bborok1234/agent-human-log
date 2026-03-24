@@ -5,15 +5,28 @@ import { summarizeDay } from '../summarizer/index.js';
 import { writeDailySummary } from '../obsidian/writer.js';
 import { saveDailySummary } from '../memory/store.js';
 
+function elapsed(start: number): string {
+  return `${((performance.now() - start) / 1000).toFixed(1)}s`;
+}
+
 export default async function dailySummary() {
   const date = process.argv[3] ?? new Date().toLocaleDateString('en-CA');
   console.error(`Generating daily summary for ${date}...`);
+  const t0 = performance.now();
 
   const config = await loadConfig();
 
+  let t = performance.now();
   const sessions = await getAllSessionsForDate(config.session, date);
+  console.error(`  sessions: ${sessions.length} found (${elapsed(t)})`);
+
+  t = performance.now();
   const git = await getGitSummaryForDate(config.git.repos, date, config.git.authorEmail);
+  console.error(`  git: ${git.reduce((s, g) => s + g.commits.length, 0)} commits (${elapsed(t)})`);
+
+  t = performance.now();
   const summary = await summarizeDay({ date, sessions, git }, config.summarizer);
+  console.error(`  summarize: ${summary.projects.length} projects (${elapsed(t)})`);
 
   console.log(`# ${summary.date}\n`);
 
@@ -60,7 +73,10 @@ export default async function dailySummary() {
     console.log(flowStr);
   }
 
+  t = performance.now();
   const filePath = await writeDailySummary(config.obsidian, summary);
   saveDailySummary(config.memory, summary);
+  console.error(`  write: obsidian + sqlite (${elapsed(t)})`);
+  console.error(`  total: ${elapsed(t0)}`);
   console.error(`\nWritten to ${filePath}`);
 }
