@@ -112,6 +112,9 @@ function buildSessionEntry(
     messageCount: userMessages.length,
     completedTodos: [],
     durationMinutes,
+    filesEdited: [],
+    commandsRun: [],
+    toolUseCounts: {},
   };
 }
 

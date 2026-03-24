@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import type { DayData, DailySummary, SummarizerConfig } from '../types/index.js';
+import type { DayData, DailySummary, DecisionRecord, SummarizerConfig } from '../types/index.js';
 
 const SYSTEM_MESSAGE_PATTERNS = [
   /^<local-command/,
@@ -11,11 +11,17 @@ const SYSTEM_MESSAGE_PATTERNS = [
   /^<\/?(local-command|command-name|local-research|system|context)/,
   /^<!-- OMO_INTERNAL/,
   /^\[SYSTEM DIRECTIVE/,
+  /^<system-reminder>/,
+  /^<session-restore>/,
+  /^<user-prompt-submit-hook>/,
+  /^\[OMC/,
 ];
 
 const MODE_PREFIX_PATTERN = /^\[(analyze-mode|search-mode|implement-mode|review-mode)\]\s*/i;
 
 const MIN_MESSAGE_LENGTH = 5;
+const MAX_MESSAGE_CHARS = 500;
+const MAX_TOTAL_MESSAGE_CHARS = 8000;
 
 function isSystemMessage(msg: string): boolean {
   const firstLine = msg.split('\n')[0].trim();
@@ -37,6 +43,20 @@ function cleanUserMessage(msg: string): string {
   return msg.trim();
 }
 
+/** Normalize project name to last meaningful segment (e.g., "searchright/luffy" → "luffy") */
+function normalizeProjectName(name: string): string {
+  const segments = name.split('/').filter(Boolean);
+  return segments[segments.length - 1] ?? name;
+}
+
+/** Truncate a message to MAX_MESSAGE_CHARS, preserving whole words */
+function truncateMessage(msg: string): string {
+  if (msg.length <= MAX_MESSAGE_CHARS) return msg;
+  const truncated = msg.slice(0, MAX_MESSAGE_CHARS);
+  const lastSpace = truncated.lastIndexOf(' ');
+  return (lastSpace > MAX_MESSAGE_CHARS * 0.8 ? truncated.slice(0, lastSpace) : truncated) + '...';
+}
+
 export async function summarizeDay(
   data: DayData,
   config?: SummarizerConfig,
@@ -49,49 +69,139 @@ export async function summarizeDay(
   const totalDeletions = git.reduce((sum, g) => sum + g.totalDeletions, 0);
   const totalSessions = sessions.length;
   const totalMinutes = sessions.reduce((sum, s) => sum + s.durationMinutes, 0);
-  const hours = Math.round(totalMinutes / 60);
+  const hours = Math.round((totalMinutes / 60) * 10) / 10;
 
-  const stats = `${totalCommits} commits · ${totalFiles} files · +${totalInsertions}/-${totalDeletions} · ${totalSessions} sessions · ~${hours}h`;
+  // Collect unique projects (normalize: take last path segment as canonical name)
+  const rawProjects = [
+    ...sessions.map((s) => s.project),
+    ...git.map((g) => g.repo),
+  ];
+  const projects = [...new Set(rawProjects.map(normalizeProjectName))];
+
+  // Build per-project stats
+  const projectStats = buildProjectStats(sessions, git);
+  const statsLines = [
+    `총 ${totalCommits} commits · ${totalFiles} files · +${totalInsertions}/-${totalDeletions} · ${totalSessions} sessions · ~${hours}h`,
+  ];
+  for (const [proj, ps] of Object.entries(projectStats)) {
+    const parts: string[] = [];
+    if (ps.commits > 0) parts.push(`${ps.commits} commits`);
+    if (ps.filesChanged > 0) parts.push(`${ps.filesChanged} files · +${ps.insertions}/-${ps.deletions}`);
+    if (ps.sessions > 0) parts.push(`${ps.sessions} sessions · ~${ps.hours}h`);
+    if (parts.length > 0) statsLines.push(`${proj}: ${parts.join(' · ')}`);
+  }
+  const stats = statsLines.join('\n');
 
   const cleanedMessages = extractCleanMessages(sessions);
   const commitMessages = git.flatMap((g) =>
-    g.commits.map((c) => `[${g.repo}] ${c.message}`),
+    g.commits.map((c) => `[${normalizeProjectName(g.repo)}] ${c.message}`),
   );
+  const toolContext = buildToolContext(sessions);
 
-  let summary: string[];
-  if (config && cleanedMessages.length > 0) {
-    summary = await llmSummarize(cleanedMessages, commitMessages, date, config);
+  let summary: string[] = [];
+  let workTypes: string[] = [];
+  let decisions: DecisionRecord[] = [];
+
+  if (config && (cleanedMessages.length > 0 || commitMessages.length > 0)) {
+    // Summarize per-project to guarantee grouped output
+    const grouped = groupByProject(cleanedMessages, commitMessages, toolContext);
+
+    for (const [project, data] of Object.entries(grouped)) {
+      const result = await llmSummarizeProject(project, data, date, config);
+      // Add project header
+      const tagStr = result.workTypes.length > 0 ? ' ' + result.workTypes.map((t) => `#${t}`).join(' ') : '';
+      summary.push(`\n**[[${project}]]**${tagStr}`);
+      summary.push(...result.summary);
+      workTypes.push(...result.workTypes);
+      decisions.push(...result.decisions);
+    }
+    workTypes = [...new Set(workTypes)];
   } else {
     summary = fallbackSummarize(cleanedMessages);
   }
 
   const carryForward = extractCarryForward(sessions, git);
 
-  return { date, summary, carryForward, stats };
+  return {
+    date,
+    summary,
+    carryForward,
+    stats,
+    projects,
+    workTypes,
+    decisions,
+    filesEdited: [],
+    hours,
+    commits: totalCommits,
+    sessions: totalSessions,
+  };
 }
 
-async function llmSummarize(
+interface ProjectInput {
+  messages: string[];
+  commits: string[];
+  tools: string[];
+}
+
+/** Group tagged messages by project name */
+function groupByProject(
   userMessages: string[],
   commitMessages: string[],
+  toolContext: string[],
+): Record<string, ProjectInput> {
+  const data: Record<string, ProjectInput> = {};
+
+  const ensure = (proj: string): ProjectInput => {
+    if (!data[proj]) data[proj] = { messages: [], commits: [], tools: [] };
+    return data[proj];
+  };
+
+  const extractProject = (msg: string): [string, string] => {
+    const match = msg.match(/^\[([^\]]+)\]\s*/);
+    return match ? [match[1], msg.slice(match[0].length)] : ['other', msg];
+  };
+
+  for (const msg of userMessages) {
+    const [proj, content] = extractProject(msg);
+    ensure(proj).messages.push(content);
+  }
+  for (const msg of commitMessages) {
+    const [proj, content] = extractProject(msg);
+    ensure(proj).commits.push(content);
+  }
+  for (const msg of toolContext) {
+    const [proj, content] = extractProject(msg);
+    ensure(proj).tools.push(content);
+  }
+
+  return data;
+}
+
+interface LlmResult {
+  summary: string[];
+  workTypes: string[];
+  decisions: DecisionRecord[];
+}
+
+async function llmSummarizeProject(
+  project: string,
+  data: ProjectInput,
   date: string,
   config: SummarizerConfig,
-): Promise<string[]> {
+): Promise<LlmResult> {
   try {
     const client = new Anthropic();
 
-    const inputBlock = [
-      `Date: ${date}`,
-      '',
-      'User messages (developer intent):',
-      ...userMessages.map((m, i) => `${i + 1}. ${m}`),
-    ];
+    const inputLines = [`Date: ${date}`, `Project: ${project}`, ''];
 
-    if (commitMessages.length > 0) {
-      inputBlock.push(
-        '',
-        'Git commits:',
-        ...commitMessages.map((m) => `- ${m}`),
-      );
+    if (data.messages.length > 0) {
+      inputLines.push('Developer intent (why):', ...data.messages.map((m) => `- ${m}`), '');
+    }
+    if (data.commits.length > 0) {
+      inputLines.push('Git commits (what shipped):', ...data.commits.map((m) => `- ${m}`), '');
+    }
+    if (data.tools.length > 0) {
+      inputLines.push('Tool activity:', ...data.tools.map((m) => `- ${m}`), '');
     }
 
     const response = await client.messages.create({
@@ -100,10 +210,10 @@ async function llmSummarize(
       messages: [
         {
           role: 'user',
-          content: inputBlock.join('\n'),
+          content: inputLines.join('\n'),
         },
       ],
-      system: SUMMARIZER_PROMPT,
+      system: PROJECT_SUMMARIZER_PROMPT,
     });
 
     const text = response.content
@@ -111,18 +221,77 @@ async function llmSummarize(
       .map((block) => block.text)
       .join('\n');
 
-    return text
-      .split('\n')
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0)
-      .map((line) => {
-        if (line.startsWith('[') && line.endsWith(']')) return `\n**${line}**`;
-        return line.startsWith('-') ? line : `- ${line}`;
-      });
+    return parseLlmResponse(text);
   } catch (error) {
     console.error('LLM summarization failed, falling back to extraction:', error);
-    return fallbackSummarize(userMessages);
+    return { summary: fallbackSummarize(data.messages), workTypes: [], decisions: [] };
   }
+}
+
+function parseLlmResponse(text: string): LlmResult {
+  const summary: string[] = [];
+  const workTypes = new Set<string>();
+  const decisions: DecisionRecord[] = [];
+
+  // Try to extract JSON block first
+  const jsonMatch = text.match(/```json\s*([\s\S]*?)```/);
+  if (jsonMatch) {
+    try {
+      const parsed = JSON.parse(jsonMatch[1]);
+      if (parsed.decisions && Array.isArray(parsed.decisions)) {
+        for (const d of parsed.decisions) {
+          if (d.title && d.rationale) {
+            decisions.push({
+              title: d.title,
+              rationale: d.rationale,
+              tradeoff: d.tradeoff,
+            });
+          }
+        }
+      }
+      if (parsed.workTypes && Array.isArray(parsed.workTypes)) {
+        for (const t of parsed.workTypes) workTypes.add(t);
+      }
+    } catch {
+      // JSON parsing failed, continue with text parsing
+    }
+  }
+
+  // Parse the text portion (remove JSON block and any fenced code blocks)
+  const textPortion = text
+    .replace(/```json[\s\S]*?```/g, '')
+    .replace(/```[\s\S]*?```/g, '')
+    .trim();
+  const lines = textPortion.split('\n').map((l) => l.trim()).filter((l) => l.length > 0);
+
+  let inCodeFence = false;
+  for (const line of lines) {
+    // Skip any remaining code fence content
+    if (line.startsWith('```')) {
+      inCodeFence = !inCodeFence;
+      continue;
+    }
+    if (inCodeFence) continue;
+
+    // Skip JSON-like lines that leaked through
+    if (/^[{}\[\]"]/.test(line) || line.startsWith('//')) continue;
+
+    // Extract work type tags inline
+    const tagMatches = line.match(/#(bugfix|feature|refactor|investigation|ops|docs|perf)/g);
+    if (tagMatches) {
+      for (const tag of tagMatches) workTypes.add(tag.slice(1));
+    }
+
+    // Skip project headers — we add them externally
+    if (/^\[[\w/.-]+\]/.test(line) && !line.startsWith('[-')) continue;
+
+    // Accept various bullet styles: -, •, *, and normalize to -
+    if (/^[-•*]\s/.test(line)) {
+      summary.push(line.replace(/^[•*]\s/, '- '));
+    }
+  }
+
+  return { summary, workTypes: [...workTypes], decisions };
 }
 
 function fallbackSummarize(messages: string[]): string[] {
@@ -135,16 +304,92 @@ function fallbackSummarize(messages: string[]): string[] {
 }
 
 function extractCleanMessages(sessions: DayData['sessions']): string[] {
-  return sessions.flatMap((s) =>
-    s.userMessages
-      .map(cleanUserMessage)
-      .filter((msg) => msg.length >= MIN_MESSAGE_LENGTH && !isSystemMessage(msg))
-      .map((msg) => {
-        const firstLine = msg.split('\n')[0].trim();
-        const truncated = firstLine.length > 200 ? firstLine.slice(0, 200) + '...' : firstLine;
-        return `[${s.project}] ${truncated}`;
-      }),
-  );
+  const messages: string[] = [];
+  let totalChars = 0;
+
+  for (const s of sessions) {
+    for (const raw of s.userMessages) {
+      if (totalChars >= MAX_TOTAL_MESSAGE_CHARS) break;
+
+      const cleaned = cleanUserMessage(raw);
+      if (cleaned.length < MIN_MESSAGE_LENGTH || isSystemMessage(cleaned)) continue;
+
+      const truncated = truncateMessage(cleaned);
+      const tagged = `[${normalizeProjectName(s.project)}] ${truncated}`;
+      messages.push(tagged);
+      totalChars += tagged.length;
+    }
+  }
+
+  return messages;
+}
+
+interface ProjectStat {
+  commits: number;
+  filesChanged: number;
+  insertions: number;
+  deletions: number;
+  sessions: number;
+  hours: number;
+}
+
+function buildProjectStats(sessions: DayData['sessions'], git: DayData['git']): Record<string, ProjectStat> {
+  const stats: Record<string, ProjectStat> = {};
+
+  const ensure = (name: string): ProjectStat => {
+    if (!stats[name]) stats[name] = { commits: 0, filesChanged: 0, insertions: 0, deletions: 0, sessions: 0, hours: 0 };
+    return stats[name];
+  };
+
+  for (const s of sessions) {
+    const ps = ensure(normalizeProjectName(s.project));
+    ps.sessions += 1;
+    ps.hours = Math.round((ps.hours + s.durationMinutes / 60) * 10) / 10;
+  }
+
+  for (const g of git) {
+    const ps = ensure(normalizeProjectName(g.repo));
+    ps.commits += g.commits.length;
+    ps.filesChanged += g.totalFilesChanged;
+    ps.insertions += g.totalInsertions;
+    ps.deletions += g.totalDeletions;
+  }
+
+  return stats;
+}
+
+/** Build tool activity context lines for LLM input */
+function buildToolContext(sessions: DayData['sessions']): string[] {
+  const lines: string[] = [];
+
+  for (const s of sessions) {
+    const parts: string[] = [];
+
+    if (s.filesEdited.length > 0) {
+      const files = s.filesEdited.slice(0, 10); // cap at 10 files
+      parts.push(`edited: ${files.join(', ')}${s.filesEdited.length > 10 ? ` (+${s.filesEdited.length - 10} more)` : ''}`);
+    }
+
+    if (s.commandsRun.length > 0) {
+      const cmds = s.commandsRun.slice(0, 5);
+      parts.push(`ran: ${cmds.join('; ')}`);
+    }
+
+    if (Object.keys(s.toolUseCounts).length > 0) {
+      const top = Object.entries(s.toolUseCounts)
+        .sort(([, a], [, b]) => b - a)
+        .slice(0, 5)
+        .map(([tool, count]) => `${tool}(${count})`)
+        .join(', ');
+      parts.push(`tools: ${top}`);
+    }
+
+    if (parts.length > 0) {
+      lines.push(`[${normalizeProjectName(s.project)}] ${parts.join(' | ')}`);
+    }
+  }
+
+  return lines;
 }
 
 function extractCarryForward(
@@ -164,29 +409,32 @@ function extractCarryForward(
   return items.slice(0, 5);
 }
 
-const SUMMARIZER_PROMPT = `You are a work journal assistant. Given a developer's AI session messages and git commits from one day, produce a TL;DR summary grouped by project.
+const PROJECT_SUMMARIZER_PROMPT = `You are a work journal assistant. Given ONE project's data from a developer's day, produce a concise summary.
 
-Format:
-- Group by project. Each project header is "[project-name]" on its own line
-- Under each project, 3-5 bullet points summarizing what was shipped/decided
+## Rules
+- 3-5 bullet points summarizing what was SHIPPED or DECIDED
 - Each bullet describes an OUTCOME, not a process
-- Git commits are the strongest signal — they show what was actually shipped
-- User messages add "why" context — use them to enrich commit summaries
+- Git commits = strongest signal (what shipped). Developer intent = why context.
 - Write in the same language the developer used (Korean if input is Korean)
-- No preamble — start directly with the first project header
+- No preamble, no project header — start directly with bullet points
 
-Good example:
-[luffy]
-- 에이전트 라우터를 5개 도메인 모듈로 분리 리팩토링, PR 3개 병합
-- ROADMAP_V2가 929줄로 비대해져서 3개 파일로 분할 (로드맵/완료PR/결정사항)
-- 에이전트 온보딩 메시지 + 추천 작업 버튼 기능 구현
+## After the bullets, add a JSON metadata block:
+\`\`\`json
+{
+  "workTypes": ["feature", "bugfix", "refactor", "investigation", "ops", "docs", "perf"],
+  "decisions": [
+    { "title": "...", "rationale": "...", "tradeoff": "..." }
+  ]
+}
+\`\`\`
+Only include work types that actually apply. Only include decisions if a genuine choice was made. Empty array if none.
 
-[agent-human-log]
-- Phase 1 MVP 완성 — 세션 분석기 + Obsidian daily note 연동 + LLM 요약
-- OpenCode SQLite 세션 파서 추가하여 최근 작업 데이터 수집
-- 로컬 실행 환경 구축 (npm run daily 한 줄 실행)
+## Good bullets:
+- PR-PERF 완성 — 배치 사이즈 50→100명 튜닝, 라운드 정렬로 성능 최적화
+- auth 미들웨어에서 세션 토큰을 httpOnly 쿠키로 전환하여 XSS 취약점 해소
+- Phase 1 MVP 완성 — 세션 분석기 + Obsidian daily note 연동
 
-Bad:
+## Bad bullets (DO NOT write like this):
 - 라우터를 분리해야 하는지 논의함 (process, not outcome)
 - 머지 완료 다음작업 진행 (noise)
 - 커밋하고 push함 (mechanical action)`;

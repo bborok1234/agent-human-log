@@ -15,11 +15,29 @@ export default async function dailySummary() {
   const summary = await summarizeDay({ date, sessions, git }, config.summarizer);
 
   console.log(`# ${summary.date}\n`);
+
+  if (summary.projects.length > 0) {
+    console.log(`Projects: ${summary.projects.join(', ')}`);
+  }
+  if (summary.workTypes.length > 0) {
+    console.log(`Work types: ${summary.workTypes.map((t) => `#${t}`).join(' ')}`);
+  }
+  console.log('');
+
   console.log(`## Summary`);
   for (const line of summary.summary) {
     console.log(line);
   }
   console.log('');
+
+  if (summary.decisions.length > 0) {
+    console.log(`## Decisions`);
+    for (const d of summary.decisions) {
+      console.log(`- ${d.title}: ${d.rationale}`);
+      if (d.tradeoff) console.log(`  Tradeoff: ${d.tradeoff}`);
+    }
+    console.log('');
+  }
 
   if (summary.carryForward.length > 0) {
     console.log(`## Carry Forward`);
