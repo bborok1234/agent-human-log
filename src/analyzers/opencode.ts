@@ -18,6 +18,12 @@ interface MessageWithParts {
   part_text: string;
 }
 
+interface TodoRow {
+  content: string;
+  status: string;
+  priority: string;
+}
+
 export function getOpenCodeSessionsForDate(
   dbPath: string,
   date: string,
@@ -103,6 +109,9 @@ function buildSessionEntry(
   const lastTs = timestamps[timestamps.length - 1] ?? session.time_updated;
   const durationMinutes = Math.round((lastTs - firstTs) / 60_000);
 
+  // Query todos for this session
+  const { completedTodos, pendingTodos } = querySessionTodos(db, session.id);
+
   return {
     sessionId: session.id,
     timestamp: new Date(firstTs),
@@ -110,12 +119,42 @@ function buildSessionEntry(
     userMessages,
     agentsUsed: Array.from(agents),
     messageCount: userMessages.length,
-    completedTodos: [],
+    completedTodos,
+    pendingTodos,
     durationMinutes,
     filesEdited: [],
     commandsRun: [],
     toolUseCounts: {},
   };
+}
+
+function querySessionTodos(
+  db: Database.Database,
+  sessionId: string,
+): { completedTodos: string[]; pendingTodos: string[] } {
+  try {
+    const todos = db.prepare(`
+      SELECT content, status, priority
+      FROM todo
+      WHERE session_id = ?
+      ORDER BY priority ASC, position ASC
+    `).all(sessionId) as TodoRow[];
+
+    const completedTodos: string[] = [];
+    const pendingTodos: string[] = [];
+
+    for (const todo of todos) {
+      if (todo.status === 'completed') {
+        completedTodos.push(todo.content);
+      } else if (todo.status === 'pending' || todo.status === 'in_progress') {
+        pendingTodos.push(todo.content);
+      }
+    }
+
+    return { completedTodos, pendingTodos };
+  } catch {
+    return { completedTodos: [], pendingTodos: [] };
+  }
 }
 
 const SYSTEM_PATTERNS = [

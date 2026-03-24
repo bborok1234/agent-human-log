@@ -185,6 +185,98 @@ function ensureDecisionsSection(note: string, decisionsContent: string): string 
   return note + decisionsContent;
 }
 
+// --- Carry Forward Rollover ---
+
+export interface RolledOverItem {
+  content: string;
+  originDate: string;
+  daysOld: number;
+}
+
+/**
+ * Read unchecked carry forward items from the past N days.
+ * Returns items with their origin date and age.
+ */
+export async function getUncheckedCarryForward(
+  config: ObsidianConfig,
+  todayDate: string,
+  lookbackDays: number = 7,
+): Promise<RolledOverItem[]> {
+  const items: RolledOverItem[] = [];
+  const today = new Date(`${todayDate}T12:00:00`);
+
+  for (let i = 1; i <= lookbackDays; i++) {
+    const d = new Date(today);
+    d.setDate(d.getDate() - i);
+    const dateStr = d.toLocaleDateString('en-CA');
+
+    const note = await readDailyNote(config, dateStr);
+    if (!note) continue;
+
+    const carryLines = extractSection(note, SECTION_MARKERS.carryForward);
+    for (const line of carryLines) {
+      // Match unchecked items: - [ ] content (possibly with "(from MM-DD)" suffix)
+      const uncheckedMatch = line.match(/^- \[ \]\s+(.+)/);
+      if (!uncheckedMatch) continue;
+
+      let content = uncheckedMatch[1];
+      // Strip existing origin date suffix to avoid nesting
+      content = content.replace(/\s*\(from \d{2}-\d{2}\)$/, '').trim();
+      // Strip existing warning marker
+      content = content.replace(/^⚠️\s*/, '').trim();
+
+      // Find the true origin date (might have been rolled over already)
+      const originMatch = uncheckedMatch[1].match(/\(from (\d{2}-\d{2})\)$/);
+      const originDate = originMatch
+        ? `${todayDate.slice(0, 5)}${originMatch[1]}` // reconstruct YYYY-MM-DD
+        : dateStr;
+
+      const originD = new Date(`${originDate}T12:00:00`);
+      const daysOld = Math.round((today.getTime() - originD.getTime()) / 86_400_000);
+
+      items.push({ content, originDate, daysOld });
+    }
+  }
+
+  // Deduplicate by content
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    const key = item.content.toLowerCase();
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+/** Format carry forward items for Obsidian, including rolled-over items */
+export function formatCarryForward(
+  todayItems: string[],
+  rolledOver: RolledOverItem[],
+): string {
+  const lines: string[] = [];
+
+  // Rolled-over items first (oldest → newest)
+  const sorted = [...rolledOver].sort((a, b) => b.daysOld - a.daysOld);
+  for (const item of sorted) {
+    const warn = item.daysOld >= 3 ? '⚠️ ' : '';
+    const dateTag = `(from ${item.originDate.slice(5)})`; // MM-DD
+    lines.push(`- [ ] ${warn}${item.content} ${dateTag}`);
+  }
+
+  // Today's new items
+  for (const item of todayItems) {
+    // Don't duplicate items already in rolled-over
+    const isDuplicate = rolledOver.some(
+      (r) => r.content.toLowerCase() === item.toLowerCase(),
+    );
+    if (!isDuplicate) {
+      lines.push(`- [ ] ${item}`);
+    }
+  }
+
+  return lines.join('\n');
+}
+
 // --- Public API ---
 
 export async function writeDailySummary(
@@ -207,9 +299,10 @@ export async function writeDailySummary(
     : '';
   note = replaceSectionContent(note, SECTION_MARKERS.summary, summaryText);
 
-  // Carry forward
-  const carryText = summary.carryForward.length > 0
-    ? summary.carryForward.map((c) => `- [ ] ${c}`).join('\n')
+  // Carry forward with cross-day rollover
+  const rolledOver = await getUncheckedCarryForward(config, summary.date);
+  const carryText = (summary.carryForward.length > 0 || rolledOver.length > 0)
+    ? formatCarryForward(summary.carryForward, rolledOver)
     : '';
   note = replaceSectionContent(note, SECTION_MARKERS.carryForward, carryText);
 

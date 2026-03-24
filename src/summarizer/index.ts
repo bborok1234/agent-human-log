@@ -101,6 +101,7 @@ export async function summarizeDay(
   let summary: string[] = [];
   let workTypes: string[] = [];
   let decisions: DecisionRecord[] = [];
+  const llmCarryForward: string[] = [];
 
   if (config && (cleanedMessages.length > 0 || commitMessages.length > 0)) {
     // Summarize per-project to guarantee grouped output
@@ -114,13 +115,24 @@ export async function summarizeDay(
       summary.push(...result.summary);
       workTypes.push(...result.workTypes);
       decisions.push(...result.decisions);
+      llmCarryForward.push(...result.carryForward);
     }
     workTypes = [...new Set(workTypes)];
   } else {
     summary = fallbackSummarize(cleanedMessages);
   }
 
-  const carryForward = extractCarryForward(sessions, git);
+  // Merge carry forward: LLM-extracted + static (pending todos + active branches)
+  const staticCarry = extractCarryForward(sessions, git);
+  const carrySet = new Set<string>();
+  const carryForward: string[] = [];
+  for (const item of [...llmCarryForward, ...staticCarry]) {
+    const key = item.toLowerCase().trim();
+    if (!carrySet.has(key)) {
+      carrySet.add(key);
+      carryForward.push(item);
+    }
+  }
 
   return {
     date,
@@ -181,6 +193,7 @@ interface LlmResult {
   summary: string[];
   workTypes: string[];
   decisions: DecisionRecord[];
+  carryForward: string[];
 }
 
 async function llmSummarizeProject(
@@ -224,7 +237,7 @@ async function llmSummarizeProject(
     return parseLlmResponse(text);
   } catch (error) {
     console.error('LLM summarization failed, falling back to extraction:', error);
-    return { summary: fallbackSummarize(data.messages), workTypes: [], decisions: [] };
+    return { summary: fallbackSummarize(data.messages), workTypes: [], decisions: [], carryForward: [] };
   }
 }
 
@@ -232,6 +245,7 @@ function parseLlmResponse(text: string): LlmResult {
   const summary: string[] = [];
   const workTypes = new Set<string>();
   const decisions: DecisionRecord[] = [];
+  const carryForward: string[] = [];
 
   // Try to extract JSON block first
   const jsonMatch = text.match(/```json\s*([\s\S]*?)```/);
@@ -251,6 +265,9 @@ function parseLlmResponse(text: string): LlmResult {
       }
       if (parsed.workTypes && Array.isArray(parsed.workTypes)) {
         for (const t of parsed.workTypes) workTypes.add(t);
+      }
+      if (parsed.carryForward && Array.isArray(parsed.carryForward)) {
+        carryForward.push(...parsed.carryForward.filter((s: unknown) => typeof s === 'string' && s.length > 0));
       }
     } catch {
       // JSON parsing failed, continue with text parsing
@@ -291,7 +308,7 @@ function parseLlmResponse(text: string): LlmResult {
     }
   }
 
-  return { summary, workTypes: [...workTypes], decisions };
+  return { summary, workTypes: [...workTypes], decisions, carryForward };
 }
 
 function fallbackSummarize(messages: string[]): string[] {
@@ -394,19 +411,37 @@ function buildToolContext(sessions: DayData['sessions']): string[] {
 
 function extractCarryForward(
   sessions: DayData['sessions'],
-  _git: DayData['git'],
+  git: DayData['git'],
 ): string[] {
   const items: string[] = [];
+  const seen = new Set<string>();
 
+  const addUnique = (item: string) => {
+    const key = item.toLowerCase().trim();
+    if (!seen.has(key)) {
+      seen.add(key);
+      items.push(item);
+    }
+  };
+
+  // 1. Pending/in-progress todos from OpenCode
   for (const session of sessions) {
-    for (const todo of session.completedTodos) {
-      if (todo.toLowerCase().includes('todo') || todo.toLowerCase().includes('pending')) {
-        items.push(todo);
+    for (const todo of session.pendingTodos) {
+      addUnique(todo);
+    }
+  }
+
+  // 2. Active feature/fix branches (skip permanent branches)
+  const WIP_BRANCH_PATTERN = /^(feat|fix|hotfix|bugfix|refactor|chore)\//;
+  for (const g of git) {
+    for (const branch of g.activeBranches.slice(0, 3)) {
+      if (WIP_BRANCH_PATTERN.test(branch)) {
+        addUnique(`[${g.repo}] 활성 브랜치: ${branch}`);
       }
     }
   }
 
-  return items.slice(0, 5);
+  return items.slice(0, 10);
 }
 
 const PROJECT_SUMMARIZER_PROMPT = `You are a work journal assistant. Given ONE project's data from a developer's day, produce a concise summary.
@@ -424,10 +459,12 @@ const PROJECT_SUMMARIZER_PROMPT = `You are a work journal assistant. Given ONE p
   "workTypes": ["feature", "bugfix", "refactor", "investigation", "ops", "docs", "perf"],
   "decisions": [
     { "title": "...", "rationale": "...", "tradeoff": "..." }
-  ]
+  ],
+  "carryForward": ["미완료 작업 설명"]
 }
 \`\`\`
 Only include work types that actually apply. Only include decisions if a genuine choice was made. Empty array if none.
+carryForward: items the developer explicitly deferred ("내일", "나중에", "다음에") or started but didn't finish. Empty array if everything was completed.
 
 ## Good bullets:
 - PR-PERF 완성 — 배치 사이즈 50→100명 튜닝, 라운드 정렬로 성능 최적화
