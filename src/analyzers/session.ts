@@ -44,10 +44,12 @@ interface ToolUseData {
   filesEdited: string[];
   commandsRun: string[];
   toolUseCounts: Record<string, number>;
+  /** Ordered tool names for flow analysis */
+  toolNames: string[];
 }
 
 function extractToolUseFromContent(content: string | ContentBlock[]): ToolUseData {
-  const data: ToolUseData = { filesEdited: [], commandsRun: [], toolUseCounts: {} };
+  const data: ToolUseData = { filesEdited: [], commandsRun: [], toolUseCounts: {}, toolNames: [] };
 
   if (typeof content === 'string') return data;
 
@@ -55,6 +57,7 @@ function extractToolUseFromContent(content: string | ContentBlock[]): ToolUseDat
     if (block.type !== 'tool_use' || !block.name) continue;
 
     data.toolUseCounts[block.name] = (data.toolUseCounts[block.name] ?? 0) + 1;
+    data.toolNames.push(block.name);
 
     const input = block.input;
     if (!input) continue;
@@ -193,6 +196,7 @@ async function parseJsonlSession(
   const allFilesEdited: string[] = [];
   const allCommandsRun: string[] = [];
   const mergedToolCounts: Record<string, number> = {};
+  const allToolSequence: string[] = [];
 
   for (const line of lines) {
     try {
@@ -232,6 +236,7 @@ async function parseJsonlSession(
         const toolData = extractToolUseFromContent(msg.message.content);
         allFilesEdited.push(...toolData.filesEdited);
         allCommandsRun.push(...toolData.commandsRun);
+        allToolSequence.push(...toolData.toolNames);
         for (const [tool, count] of Object.entries(toolData.toolUseCounts)) {
           mergedToolCounts[tool] = (mergedToolCounts[tool] ?? 0) + count;
         }
@@ -266,5 +271,6 @@ async function parseJsonlSession(
     filesEdited: [...new Set(allFilesEdited)],
     commandsRun: [...new Set(allCommandsRun)],
     toolUseCounts: mergedToolCounts,
+    toolSequence: allToolSequence,
   };
 }
