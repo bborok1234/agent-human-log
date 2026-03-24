@@ -377,4 +377,83 @@ export function extractSection(note: string, sectionHeader: string): string[] {
   return contentLines;
 }
 
-export { SECTION_MARKERS, getDailyNotePath };
+// --- Weekly Note Writer ---
+
+import type { WeeklySummary } from '../summarizer/weekly.js';
+
+function getWeeklyNotePath(config: ObsidianConfig, week: string): string {
+  return join(config.vaultPath, 'Weekly Notes', `${week}.md`);
+}
+
+export async function writeWeeklySummary(
+  config: ObsidianConfig,
+  summary: WeeklySummary,
+): Promise<string> {
+  const filePath = getWeeklyNotePath(config, summary.week);
+  await mkdir(dirname(filePath), { recursive: true });
+
+  const lines: string[] = [];
+
+  // Frontmatter
+  lines.push('---');
+  lines.push(`week: ${summary.week}`);
+  lines.push(`date-range: [${summary.dateRange[0]}, ${summary.dateRange[1]}]`);
+  lines.push(`type: weekly-log`);
+  if (summary.projects.length > 0) {
+    lines.push(`projects:`);
+    for (const p of summary.projects) lines.push(`  - "[[${p}]]"`);
+  }
+  lines.push(`total-commits: ${summary.totalCommits}`);
+  lines.push(`total-hours: ${summary.totalHours}`);
+  lines.push(`total-sessions: ${summary.totalSessions}`);
+  if (summary.workTypes.length > 0) {
+    lines.push(`work-types:`);
+    for (const t of summary.workTypes) lines.push(`  - ${t}`);
+  }
+  lines.push('---');
+  lines.push('');
+
+  // Title
+  const weekNum = summary.week.split('-W')[1];
+  lines.push(`# Week ${weekNum} (${summary.dateRange[0]} ~ ${summary.dateRange[1]})`);
+  lines.push('');
+
+  // Highlights
+  lines.push('## 이번 주 핵심');
+  lines.push(...summary.highlights);
+  lines.push('');
+
+  // Project breakdown
+  if (Object.keys(summary.projectBreakdown).length > 0) {
+    lines.push('## 프로젝트별 시간');
+    for (const [proj, data] of Object.entries(summary.projectBreakdown)) {
+      const pct = summary.totalHours > 0 ? Math.round((data.hours / summary.totalHours) * 100) : 0;
+      lines.push(`- [[${proj}]]: ${pct}% (~${data.hours}h · ${data.commits} commits)`);
+    }
+    lines.push('');
+  }
+
+  // Decisions
+  if (summary.decisions.length > 0) {
+    lines.push('## 주요 결정');
+    for (const d of summary.decisions) lines.push(d);
+    lines.push('');
+  }
+
+  // Carry forward
+  if (summary.carryForward.length > 0) {
+    lines.push('## 다음 주 이월');
+    for (const item of summary.carryForward) lines.push(`- [ ] ${item}`);
+    lines.push('');
+  }
+
+  // Stats
+  lines.push('## Stats');
+  lines.push(summary.stats);
+  lines.push('');
+
+  await writeFile(filePath, lines.join('\n'), 'utf-8');
+  return filePath;
+}
+
+export { SECTION_MARKERS, getDailyNotePath, getWeeklyNotePath };

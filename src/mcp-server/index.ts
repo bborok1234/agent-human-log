@@ -7,11 +7,13 @@ import { getGitSummaryForDate } from '../analyzers/git.js';
 import { summarizeDay } from '../summarizer/index.js';
 import {
   writeDailySummary,
+  writeWeeklySummary,
   appendWorkLogEntry,
   readDailyNote,
   extractSection,
   SECTION_MARKERS,
 } from '../obsidian/writer.js';
+import { summarizeWeek } from '../summarizer/weekly.js';
 import type { Config } from '../types/index.js';
 
 let configCache: Config | null = null;
@@ -174,6 +176,46 @@ server.registerTool(
 
     if (lines.length === 1) {
       lines.push('', 'Note exists but no content in tracked sections.');
+    }
+
+    return {
+      content: [{ type: 'text' as const, text: lines.join('\n') }],
+    };
+  },
+);
+
+server.registerTool(
+  'weekly_summary',
+  {
+    description:
+      'Generate a weekly summary from daily notes and write to Obsidian weekly note',
+    inputSchema: z.object({
+      date: z
+        .string()
+        .optional()
+        .describe('Any date within the target week (YYYY-MM-DD). Defaults to this week.'),
+    }),
+  },
+  async ({ date }) => {
+    const config = await getConfig();
+    const summary = await summarizeWeek(config.obsidian, config.summarizer, date);
+    const filePath = await writeWeeklySummary(config.obsidian, summary);
+
+    const lines = [
+      `Written to ${filePath}`,
+      '',
+      `# ${summary.week} (${summary.dateRange[0]} ~ ${summary.dateRange[1]})`,
+      '',
+      '## 이번 주 핵심',
+      ...summary.highlights,
+      '',
+      '## Stats',
+      summary.stats,
+    ];
+
+    if (summary.carryForward.length > 0) {
+      lines.push('', '## 다음 주 이월');
+      lines.push(...summary.carryForward.map((c) => `- [ ] ${c}`));
     }
 
     return {

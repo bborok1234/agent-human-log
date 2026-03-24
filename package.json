@@ -12,6 +12,7 @@
     "dev": "tsc --watch",
     "start": "node dist/mcp-server/index.js",
     "daily": "tsc && node --env-file=.env dist/cli/index.js daily",
+    "weekly": "tsc && node --env-file=.env dist/cli/index.js weekly",
     "lint": "eslint src/",
     "typecheck": "tsc --noEmit"
   },
