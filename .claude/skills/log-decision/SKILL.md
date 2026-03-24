@@ -1,9 +1,8 @@
 ---
 name: log-decision
-version: 0.1.0
 description: "Record a decision made during work — what was chosen, why, and what tradeoffs were accepted."
 allowed-tools:
-  - log_decision
+  - mcp__agent-human-log__log_decision
 ---
 
 # Log Decision
@@ -12,7 +11,7 @@ Record a decision the developer just made or is about to make.
 
 ## How to Use
 
-The developer will describe a decision in natural language. Extract the structured fields and call `log_decision`.
+The developer will describe a decision in natural language. Extract the structured fields and call `mcp__agent-human-log__log_decision`.
 
 ## Required Fields
 - **title**: One-line summary of the decision (under 50 chars)

@@ -1,11 +1,10 @@
 ---
 name: morning
-version: 0.1.0
 description: "Morning briefing — yesterday's summary, carry-forward items, and today's recommendations. Run at the start of a work session."
 allowed-tools:
-  - get_yesterday
-  - get_recommendations
-  - set_focus
+  - mcp__agent-human-log__get_yesterday
+  - mcp__agent-human-log__get_recommendations
+  - mcp__agent-human-log__set_focus
 ---
 
 # Morning Briefing
@@ -14,10 +13,10 @@ Provide a quick morning briefing to start the day.
 
 ## Steps
 
-1. Call `get_yesterday` to retrieve yesterday's work summary and carry-forward items
-2. Call `get_recommendations` to get prioritized suggestions for today
+1. Call `mcp__agent-human-log__get_yesterday` to retrieve yesterday's work summary and carry-forward items
+2. Call `mcp__agent-human-log__get_recommendations` to get prioritized suggestions for today
 3. Present both in a concise format
-4. Ask the developer if they want to set today's focus — if yes, call `set_focus` with their answer
+4. Ask the developer if they want to set today's focus — if yes, call `mcp__agent-human-log__set_focus` with their answer
 
 ## Output Format
 

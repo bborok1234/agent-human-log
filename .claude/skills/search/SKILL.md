@@ -1,9 +1,8 @@
 ---
 name: search
-version: 0.1.0
 description: "Search past work history — summaries, decisions, and carry-forward items."
 allowed-tools:
-  - search_history
+  - mcp__agent-human-log__search_history
 ---
 
 # Search History
@@ -12,7 +11,7 @@ Search the developer's past work records.
 
 ## How to Use
 
-The developer will ask a natural language question. Extract keywords and optional filters, then call `search_history`.
+The developer will ask a natural language question. Extract keywords and optional filters, then call `mcp__agent-human-log__search_history`.
 
 ## Examples
 

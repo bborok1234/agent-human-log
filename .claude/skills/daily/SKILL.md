@@ -1,9 +1,8 @@
 ---
 name: daily
-version: 0.1.0
 description: "Generate today's daily summary — analyze sessions, git commits, and write to Obsidian."
 allowed-tools:
-  - daily_summary
+  - mcp__agent-human-log__daily_summary
 ---
 
 # Daily Summary
@@ -12,7 +11,7 @@ Generate the daily work summary on demand.
 
 ## Steps
 
-1. Call `daily_summary` (defaults to today, or pass a specific date if the developer specifies one)
+1. Call `mcp__agent-human-log__daily_summary` (defaults to today, or pass a specific date if the developer specifies one)
 2. Present the result to the developer
 
 ## Rules
