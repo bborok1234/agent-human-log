@@ -55,6 +55,8 @@ export interface SessionEntry {
   commandsRun: string[];
   /** Tool invocation counts by tool name */
   toolUseCounts: Record<string, number>;
+  /** Ordered sequence of tool calls for flow analysis */
+  toolSequence: string[];
 }
 
 // --- Git Analyzer ---
@@ -107,6 +109,16 @@ export interface DailySummary {
   commits: number;
   /** Total sessions */
   sessions: number;
+  /** Flow distribution across all sessions (e.g., { investigation: 30, implementation: 50 }) */
+  flowDistribution: Record<string, number>;
+  /** Time blocks showing when each project was worked on */
+  timeBlocks: TimeBlock[];
+}
+
+export interface TimeBlock {
+  start: string; // HH:MM
+  end: string;   // HH:MM
+  project: string;
 }
 
 export interface DecisionRecord {

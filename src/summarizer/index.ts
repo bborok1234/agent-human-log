@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { DayData, DailySummary, DecisionRecord, SummarizerConfig } from '../types/index.js';
+import { aggregateFlowDistribution, extractTimeBlocks } from '../analyzers/flow.js';
 
 const SYSTEM_MESSAGE_PATTERNS = [
   /^<local-command/,
@@ -164,6 +165,8 @@ export async function summarizeDay(
     hours,
     commits: totalCommits,
     sessions: totalSessions,
+    flowDistribution: aggregateFlowDistribution(sessions),
+    timeBlocks: extractTimeBlocks(sessions),
   };
 }
 

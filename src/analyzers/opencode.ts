@@ -125,6 +125,7 @@ function buildSessionEntry(
     filesEdited: [],
     commandsRun: [],
     toolUseCounts: {},
+    toolSequence: [],
   };
 }
 

@@ -51,6 +51,15 @@ export default async function dailySummary() {
   console.log(`## Stats`);
   console.log(summary.stats);
 
+  if (Object.keys(summary.flowDistribution).length > 0) {
+    const flowStr = Object.entries(summary.flowDistribution)
+      .sort(([, a], [, b]) => b - a)
+      .map(([type, pct]) => `${type} ${pct}%`)
+      .join(' → ');
+    console.log(`\n## Flow`);
+    console.log(flowStr);
+  }
+
   const filePath = await writeDailySummary(config.obsidian, summary);
   saveDailySummary(config.memory, summary);
   console.error(`\nWritten to ${filePath}`);

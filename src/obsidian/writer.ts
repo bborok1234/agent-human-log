@@ -1,6 +1,6 @@
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
-import type { ObsidianConfig, DailySummary, DecisionRecord } from '../types/index.js';
+import type { ObsidianConfig, DailySummary, DecisionRecord, TimeBlock } from '../types/index.js';
 
 const SECTION_MARKERS = {
   focus: '## Focus',
@@ -36,6 +36,22 @@ function buildFrontmatter(summary: DailySummary): string {
     lines.push(`work-types:`);
     for (const t of summary.workTypes) {
       lines.push(`  - ${t}`);
+    }
+  }
+
+  if (Object.keys(summary.flowDistribution).length > 0) {
+    lines.push(`flow-distribution:`);
+    for (const [type, pct] of Object.entries(summary.flowDistribution)) {
+      lines.push(`  ${type}: ${pct}`);
+    }
+  }
+
+  if (summary.timeBlocks.length > 0) {
+    lines.push(`time-blocks:`);
+    for (const block of summary.timeBlocks) {
+      lines.push(`  - start: "${block.start}"`);
+      lines.push(`    end: "${block.end}"`);
+      lines.push(`    project: ${block.project}`);
     }
   }
 

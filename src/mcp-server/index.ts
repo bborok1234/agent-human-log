@@ -97,6 +97,14 @@ server.registerTool(
 
     lines.push('', '## Summary', ...summary.summary, '', '## Stats', summary.stats);
 
+    if (Object.keys(summary.flowDistribution).length > 0) {
+      const flowStr = Object.entries(summary.flowDistribution)
+        .sort(([, a], [, b]) => b - a)
+        .map(([type, pct]) => `${type} ${pct}%`)
+        .join(' → ');
+      lines.push('', '## Flow', flowStr);
+    }
+
     if (summary.decisions.length > 0) {
       lines.push('', '## Decisions');
       for (const d of summary.decisions) {
